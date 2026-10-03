@@ -86,13 +86,30 @@ impl<K, V> Dense<K, V> {
         }
     }
 
+    #[inline]
+    pub(crate) fn is_full(&self) -> bool {
+        self.len == self.cap
+    }
+
     /// Appends an entry, returning its value.
     #[inline]
     pub(crate) fn push(&mut self, key: K, value: V) -> &mut V {
-        let position = self.len;
-        if position == self.cap {
+        if self.is_full() {
             self.grow_one();
         }
+        // SAFETY: `grow_one` made room.
+        unsafe { self.push_unchecked(key, value) }
+    }
+
+    /// Appends an entry without checking capacity, returning its value.
+    ///
+    /// # Safety
+    ///
+    /// The storage must not be full.
+    #[inline]
+    pub(crate) unsafe fn push_unchecked(&mut self, key: K, value: V) -> &mut V {
+        let position = self.len;
+        debug_assert!(position < self.cap);
         // SAFETY: `position < cap`, so both slots are allocated and unused.
         unsafe {
             self.keys.as_ptr().add(position).write(key);

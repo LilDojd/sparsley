@@ -1,5 +1,7 @@
 //! A sparse map with packed, contiguous values.
 
+use core::mem;
+
 use crate::Key;
 use crate::dense::Dense;
 use crate::sparse::Sparse;
@@ -252,6 +254,28 @@ impl<K: Key, V> SparseMap<K, V> {
     /// ```
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        let index = key.index();
+        let len = self.dense.len();
+        if let Some(position) = self.sparse.position(index, len) {
+            // SAFETY: `position` only returns positions below `len`.
+            let slot = unsafe { self.dense.values_mut().get_unchecked_mut(position) };
+            return Some(mem::replace(slot, value));
+        }
+        if index >= self.sparse.len() || self.dense.is_full() {
+            return self.insert_slow(key, value);
+        }
+        // SAFETY: the storage is not full and `index` has a slot, so `len`
+        // becomes a valid position below `MAX_LEN`.
+        unsafe {
+            self.dense.push_unchecked(key, value);
+            self.sparse.set_unchecked(index, len);
+        }
+        None
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn insert_slow(&mut self, key: K, value: V) -> Option<V> {
         match self.entry(key) {
             Entry::Occupied(mut entry) => Some(entry.insert(value)),
             Entry::Vacant(entry) => {

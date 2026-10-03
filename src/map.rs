@@ -7,6 +7,7 @@ use crate::sparse::Sparse;
 
 mod entry;
 mod iter;
+mod traits;
 
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
 pub use iter::{Drain, IntoIter, Iter, IterMut};
@@ -152,6 +153,20 @@ impl<K, V> SparseMap<K, V> {
 }
 
 impl<K: Copy, V> SparseMap<K, V> {
+    /// Returns the entry at dense `position`.
+    #[inline]
+    #[must_use]
+    pub fn get_index(&self, position: usize) -> Option<(K, &V)> {
+        Some((*self.keys.get(position)?, self.values.get(position)?))
+    }
+
+    /// Returns the entry at dense `position` with a mutable value.
+    #[inline]
+    #[must_use]
+    pub fn get_index_mut(&mut self, position: usize) -> Option<(K, &mut V)> {
+        Some((*self.keys.get(position)?, self.values.get_mut(position)?))
+    }
+
     /// Iterates over `(key, &value)` in dense order.
     #[inline]
     pub fn iter(&self) -> Iter<'_, K, V> {
@@ -193,6 +208,28 @@ impl<K: Key, V> SparseMap<K, V> {
     pub fn get_mut(&mut self, key: K) -> Option<&mut V> {
         let position = self.position(key)?;
         self.values.get_mut(position)
+    }
+
+    /// Returns mutable references to the values of `N` keys at once.
+    ///
+    /// Each element is `None` if its key is absent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if two present keys are equal.
+    #[must_use]
+    pub fn get_disjoint_mut<const N: usize>(&mut self, keys: [K; N]) -> [Option<&mut V>; N] {
+        let positions = keys.map(|key| self.position(key));
+        for (i, position) in positions.iter().enumerate() {
+            assert!(
+                position.is_none() || !positions[..i].contains(position),
+                "duplicate keys in get_disjoint_mut"
+            );
+        }
+        let values = self.values.as_mut_ptr();
+        // SAFETY: present positions are in bounds and pairwise distinct, so
+        // the references are disjoint and live no longer than `&mut self`.
+        positions.map(|position| position.map(|position| unsafe { &mut *values.add(position) }))
     }
 
     /// Inserts `value` at `key`, returning the previous value.

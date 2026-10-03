@@ -8,9 +8,21 @@ const MIN_SLOTS: usize = 64;
 ///
 /// A slot stores `position + 1`, so an empty slot is all zero bits. Fresh
 /// slots come from zeroed allocations, which the OS maps lazily.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(crate) struct Sparse {
     slots: Vec<Option<NonZeroU32>>,
+}
+
+impl Clone for Sparse {
+    fn clone(&self) -> Self {
+        Self {
+            slots: self.slots.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.slots.clone_from(&source.slots);
+    }
 }
 
 impl Sparse {

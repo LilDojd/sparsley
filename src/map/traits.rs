@@ -8,15 +8,13 @@ impl<K: Clone, V: Clone> Clone for SparseMap<K, V> {
     fn clone(&self) -> Self {
         Self {
             sparse: self.sparse.clone(),
-            keys: self.keys.clone(),
-            values: self.values.clone(),
+            dense: self.dense.clone(),
         }
     }
 
     fn clone_from(&mut self, source: &Self) {
         self.sparse.clone_from(&source.sparse);
-        self.keys.clone_from(&source.keys);
-        self.values.clone_from(&source.values);
+        self.dense.clone_from(&source.dense);
     }
 }
 

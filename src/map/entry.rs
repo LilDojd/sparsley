@@ -99,7 +99,7 @@ impl<'a, K: Key, V> OccupiedEntry<'a, K, V> {
     /// Returns the stored key.
     #[must_use]
     pub fn key(&self) -> K {
-        self.map.keys[self.position]
+        self.map.keys()[self.position]
     }
 
     /// Returns the dense position of the entry.
@@ -111,19 +111,19 @@ impl<'a, K: Key, V> OccupiedEntry<'a, K, V> {
     /// Returns a reference to the value.
     #[must_use]
     pub fn get(&self) -> &V {
-        &self.map.values[self.position]
+        &self.map.values()[self.position]
     }
 
     /// Returns a mutable reference to the value.
     #[must_use]
     pub fn get_mut(&mut self) -> &mut V {
-        &mut self.map.values[self.position]
+        &mut self.map.values_mut()[self.position]
     }
 
     /// Converts the entry into a mutable reference bound to the map.
     #[must_use]
     pub fn into_mut(self) -> &'a mut V {
-        &mut self.map.values[self.position]
+        &mut self.map.values_mut()[self.position]
     }
 
     /// Replaces the value, returning the previous one.
@@ -161,14 +161,12 @@ impl<'a, K: Key, V> VacantEntry<'a, K, V> {
     #[inline]
     pub fn insert(self, value: V) -> &'a mut V {
         let map = self.map;
-        let position = map.len();
-        if position == map.keys.capacity() || position == map.values.capacity() {
-            map.grow();
-        }
-        map.sparse.set(self.index, position);
-        map.keys.push(self.key);
-        map.values.push(value);
-        &mut map.values[position]
+        let position = map.dense.len();
+        let value = map.dense.push(self.key, value);
+        // SAFETY: `Entry::new` gave `index` a slot, and `position` indexes a
+        // pushed entry, so it is below `MAX_LEN`.
+        unsafe { map.sparse.set_unchecked(self.index, position) };
+        value
     }
 }
 

@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod dense;
 mod key;
 pub mod map;
 pub mod set;

@@ -2,6 +2,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::num::NonZeroU32;
 
+use crate::dense::MAX_LEN;
+
 const MIN_SLOTS: usize = 64;
 
 /// Key index to dense position map.
@@ -68,14 +70,33 @@ impl Sparse {
         self.slots = slots;
     }
 
-    /// Points `index` at `position`.
+    /// Points `index` at `position`, which must be below `MAX_LEN`.
     ///
     /// # Panics
     ///
-    /// Panics if `index` has no slot or `position >= u32::MAX`.
+    /// Panics if `index` has no slot.
     #[inline]
     pub(crate) fn set(&mut self, index: usize, position: usize) {
         self.slots[index] = Some(encode(position));
+    }
+
+    /// Points `index` at `position`.
+    ///
+    /// # Safety
+    ///
+    /// `index` must have a slot and `position` must be below `MAX_LEN`.
+    #[inline]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "positions are below `MAX_LEN`"
+    )]
+    pub(crate) unsafe fn set_unchecked(&mut self, index: usize, position: usize) {
+        debug_assert!(index < self.slots.len() && position < MAX_LEN);
+        // SAFETY: guaranteed by the caller; `position + 1` cannot wrap to zero.
+        unsafe {
+            *self.slots.get_unchecked_mut(index) =
+                Some(NonZeroU32::new_unchecked(position as u32 + 1));
+        }
     }
 
     /// Empties `index`, returning its position if it is below `len`.
@@ -110,11 +131,13 @@ impl Sparse {
 }
 
 #[inline]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "positions are below `MAX_LEN`"
+)]
 fn encode(position: usize) -> NonZeroU32 {
-    u32::try_from(position + 1)
-        .ok()
-        .and_then(NonZeroU32::new)
-        .expect("sparse set length exceeds u32::MAX")
+    debug_assert!(position < MAX_LEN);
+    NonZeroU32::MIN.saturating_add(position as u32)
 }
 
 /// Empty slots decode to `usize::MAX`, which is never a valid position.

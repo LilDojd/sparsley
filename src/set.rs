@@ -1,6 +1,5 @@
 //! A sparse set of keys.
 
-use alloc::vec;
 use core::fmt;
 use core::iter::{Copied, FusedIterator};
 use core::slice;
@@ -20,7 +19,7 @@ pub struct SparseSet<K> {
 pub type Iter<'a, K> = Copied<slice::Iter<'a, K>>;
 
 /// Owning iterator over the keys of a [`SparseSet`] in dense order.
-pub type IntoIter<K> = vec::IntoIter<K>;
+pub type IntoIter<K> = map::IntoKeys<K, ()>;
 
 impl<K> SparseSet<K> {
     /// Creates an empty set without allocating.

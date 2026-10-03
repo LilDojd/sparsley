@@ -47,6 +47,8 @@ enum MapOp {
     GetDisjointMut(u32, u32),
     ReserveKeys(usize),
     Sort,
+    SwapRemoveIndex(usize),
+    SwapIndices(usize, usize),
 }
 
 fn map_op() -> impl Strategy<Value = MapOp> {
@@ -66,9 +68,12 @@ fn map_op() -> impl Strategy<Value = MapOp> {
         2 => (key(), key()).prop_map(|(a, b)| MapOp::GetDisjointMut(a, b)),
         1 => (0..300usize).prop_map(MapOp::ReserveKeys),
         1 => Just(MapOp::Sort),
+        2 => (0..64usize).prop_map(MapOp::SwapRemoveIndex),
+        2 => (0..64usize, 0..64usize).prop_map(|(a, b)| MapOp::SwapIndices(a, b)),
     ]
 }
 
+#[allow(clippy::too_many_lines, reason = "one arm per operation")]
 fn apply(map: &mut SparseMap<u32, u32>, model: &mut BTreeMap<u32, u32>, op: MapOp) {
     match op {
         MapOp::Insert(k, v) => assert_eq!(map.insert(k, v), model.insert(k, v)),
@@ -157,6 +162,19 @@ fn apply(map: &mut SparseMap<u32, u32>, model: &mut BTreeMap<u32, u32>, op: MapO
             map.sort_unstable_by(|(ka, va), (kb, vb)| va.cmp(vb).then(ka.cmp(&kb)));
             let entries: Vec<_> = map.iter().map(|(k, &v)| (v, k)).collect();
             assert!(entries.is_sorted());
+        }
+        MapOp::SwapRemoveIndex(position) => {
+            let expected = map
+                .get_index(position)
+                .map(|(k, _)| (k, model.remove(&k).unwrap()));
+            assert_eq!(map.swap_remove_index(position), expected);
+        }
+        MapOp::SwapIndices(a, b) => {
+            if a < map.len() && b < map.len() {
+                let (ka, kb) = (map.keys()[a], map.keys()[b]);
+                map.swap_indices(a, b);
+                assert_eq!((map.keys()[a], map.keys()[b]), (kb, ka));
+            }
         }
     }
 }

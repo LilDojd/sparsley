@@ -61,7 +61,11 @@ impl<K: Key, V> Extend<(K, V)> for SparseMap<K, V> {
         let iter = iter.into_iter();
         // Duplicate keys may make the hint overshoot, as in `HashMap`.
         let hint = iter.size_hint().0;
-        let additional = if self.is_empty() { hint } else { hint.div_ceil(2) };
+        let additional = if self.is_empty() {
+            hint
+        } else {
+            hint.div_ceil(2)
+        };
         self.reserve(additional.min(MAX_LEN - self.len()));
         iter.for_each(|(key, value)| {
             self.insert(key, value);

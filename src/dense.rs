@@ -125,6 +125,7 @@ impl<K, V> Dense<K, V> {
     /// # Panics
     ///
     /// Panics if either position is out of bounds.
+    #[track_caller]
     pub(crate) fn swap(&mut self, a: usize, b: usize) {
         assert!(a < self.len && b < self.len, "position out of bounds");
         // SAFETY: both positions are initialized; `ptr::swap` permits `a == b`.

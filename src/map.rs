@@ -333,6 +333,42 @@ impl<K: Key, V> SparseMap<K, V> {
         Some(self.swap_remove(position))
     }
 
+    /// Removes the entry at dense `position`, moving the last entry into its
+    /// place.
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut map = SparseMap::from([(1_u32, 'a'), (2, 'b'), (3, 'c')]);
+    /// assert_eq!(map.swap_remove_index(0), Some((1, 'a')));
+    /// assert_eq!(map.keys(), [3, 2]);
+    /// ```
+    pub fn swap_remove_index(&mut self, position: usize) -> Option<(K, V)> {
+        let key = *self.keys().get(position)?;
+        self.sparse.remove(key.index());
+        Some(self.swap_remove(position))
+    }
+
+    /// Swaps the entries at dense positions `a` and `b`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either position is out of bounds.
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut map = SparseMap::from([(1_u32, 'a'), (2, 'b')]);
+    /// map.swap_indices(0, 1);
+    /// assert_eq!(map.keys(), [2, 1]);
+    /// assert_eq!(map[1], 'a');
+    /// ```
+    pub fn swap_indices(&mut self, a: usize, b: usize) {
+        self.dense.swap(a, b);
+        let keys = self.dense.keys();
+        let (key_a, key_b) = (keys[a], keys[b]);
+        self.sparse.set(key_a.index(), a);
+        self.sparse.set(key_b.index(), b);
+    }
+
     /// Removes every entry, keeping allocations.
     pub fn clear(&mut self) {
         self.sparse.remove_all(indices(self.dense.keys()));

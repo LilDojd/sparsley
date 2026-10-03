@@ -1,5 +1,7 @@
 //! A sparse map with packed, contiguous values.
 
+use alloc::vec::Vec;
+use core::cmp::Ordering;
 use core::mem;
 
 use crate::Key;
@@ -369,6 +371,39 @@ impl<K: Key, V> SparseMap<K, V> {
                 self.sparse.remove(key.index());
                 self.swap_remove(position);
             }
+        }
+    }
+
+    /// Sorts the entries in dense order with `compare`.
+    ///
+    /// Unstable, O(n log n), and allocates a permutation of `len` indices.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut map = SparseMap::from([(5_u32, 'b'), (1, 'c'), (3, 'a')]);
+    /// map.sort_unstable_by(|(a, _), (b, _)| a.cmp(&b));
+    /// assert_eq!(map.keys(), [1, 3, 5]);
+    /// assert_eq!(map[3], 'a');
+    /// ```
+    pub fn sort_unstable_by(&mut self, mut compare: impl FnMut((K, &V), (K, &V)) -> Ordering) {
+        let (keys, values) = (self.dense.keys(), self.dense.values());
+        let mut order: Vec<usize> = (0..self.len()).collect();
+        order.sort_unstable_by(|&a, &b| compare((keys[a], &values[a]), (keys[b], &values[b])));
+        for start in 0..order.len() {
+            let mut target = start;
+            loop {
+                let source = mem::replace(&mut order[target], target);
+                if source == start {
+                    break;
+                }
+                self.dense.swap(target, source);
+                target = source;
+            }
+        }
+        for (position, key) in self.dense.keys().iter().enumerate() {
+            self.sparse.set(key.index(), position);
         }
     }
 

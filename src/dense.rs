@@ -120,6 +120,20 @@ impl<K, V> Dense<K, V> {
         }
     }
 
+    /// Swaps the entries at `a` and `b`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either position is out of bounds.
+    pub(crate) fn swap(&mut self, a: usize, b: usize) {
+        assert!(a < self.len && b < self.len, "position out of bounds");
+        // SAFETY: both positions are initialized; `ptr::swap` permits `a == b`.
+        unsafe {
+            ptr::swap(self.keys.as_ptr().add(a), self.keys.as_ptr().add(b));
+            ptr::swap(self.values.as_ptr().add(a), self.values.as_ptr().add(b));
+        }
+    }
+
     /// Removes the entry at `position`, moving the last entry into its place.
     ///
     /// # Panics

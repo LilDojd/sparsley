@@ -46,6 +46,7 @@ enum MapOp {
     ShrinkToFit,
     GetDisjointMut(u32, u32),
     ReserveKeys(usize),
+    Sort,
 }
 
 fn map_op() -> impl Strategy<Value = MapOp> {
@@ -64,6 +65,7 @@ fn map_op() -> impl Strategy<Value = MapOp> {
         1 => Just(MapOp::ShrinkToFit),
         2 => (key(), key()).prop_map(|(a, b)| MapOp::GetDisjointMut(a, b)),
         1 => (0..300usize).prop_map(MapOp::ReserveKeys),
+        1 => Just(MapOp::Sort),
     ]
 }
 
@@ -150,6 +152,11 @@ fn apply(map: &mut SparseMap<u32, u32>, model: &mut BTreeMap<u32, u32>, op: MapO
         MapOp::ReserveKeys(end) => {
             map.reserve_keys(end);
             assert!(map.key_capacity() >= end);
+        }
+        MapOp::Sort => {
+            map.sort_unstable_by(|(ka, va), (kb, vb)| va.cmp(vb).then(ka.cmp(&kb)));
+            let entries: Vec<_> = map.iter().map(|(k, &v)| (v, k)).collect();
+            assert!(entries.is_sorted());
         }
     }
 }

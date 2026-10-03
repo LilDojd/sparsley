@@ -1,10 +1,15 @@
 //! A sparse map with packed, contiguous values.
 
-use alloc::vec::Vec;
-use core::mem;
+use alloc::vec::{self, Vec};
 
 use crate::Key;
 use crate::sparse::Sparse;
+
+mod entry;
+mod iter;
+
+pub use entry::{Entry, OccupiedEntry, VacantEntry};
+pub use iter::{Drain, IntoIter, Iter, IterMut};
 
 /// A map from [`Key`]s to values, stored densely.
 ///
@@ -123,10 +128,40 @@ impl<K, V> SparseMap<K, V> {
         (&self.keys, &mut self.values)
     }
 
+    /// Consumes the map, yielding its keys in dense order.
+    #[inline]
+    pub fn into_keys(self) -> vec::IntoIter<K> {
+        self.keys.into_iter()
+    }
+
+    /// Consumes the map, yielding its values in dense order.
+    #[inline]
+    pub fn into_values(self) -> vec::IntoIter<V> {
+        self.values.into_iter()
+    }
+
+    fn into_vecs(self) -> (Vec<K>, Vec<V>) {
+        (self.keys, self.values)
+    }
+
     #[cold]
     #[inline(never)]
     fn grow(&mut self) {
         self.reserve(1);
+    }
+}
+
+impl<K: Copy, V> SparseMap<K, V> {
+    /// Iterates over `(key, &value)` in dense order.
+    #[inline]
+    pub fn iter(&self) -> Iter<'_, K, V> {
+        Iter::new(&self.keys, &self.values)
+    }
+
+    /// Iterates over `(key, &mut value)` in dense order.
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
+        IterMut::new(&self.keys, &mut self.values)
     }
 }
 
@@ -170,19 +205,21 @@ impl<K: Key, V> SparseMap<K, V> {
     /// Panics if the map already holds `u32::MAX` entries or allocation fails.
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        let index = key.index();
-        self.sparse.reserve(index);
-        let len = self.len();
-        if let Some(position) = self.sparse.position(index, len) {
-            return Some(mem::replace(&mut self.values[position], value));
+        match self.entry(key) {
+            Entry::Occupied(mut entry) => Some(entry.insert(value)),
+            Entry::Vacant(entry) => {
+                entry.insert(value);
+                None
+            }
         }
-        if len == self.keys.capacity() || len == self.values.capacity() {
-            self.grow();
-        }
-        self.sparse.set(index, len);
-        self.keys.push(key);
-        self.values.push(value);
-        None
+    }
+
+    /// Returns the entry of `key` for in-place manipulation.
+    ///
+    /// Ensures `key` has a sparse slot.
+    #[inline]
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V> {
+        Entry::new(self, key)
     }
 
     /// Removes `key`, returning its value.
@@ -205,6 +242,15 @@ impl<K: Key, V> SparseMap<K, V> {
         self.sparse.remove_all(self.keys.iter().map(|key| key.index()));
         self.keys.clear();
         self.values.clear();
+    }
+
+    /// Removes every entry, yielding them in dense order.
+    ///
+    /// The map is empty once this returns, even if the iterator is leaked.
+    /// Allocations are kept.
+    pub fn drain(&mut self) -> Drain<'_, K, V> {
+        self.sparse.remove_all(self.keys.iter().map(|key| key.index()));
+        Drain::new(self.keys.drain(..), self.values.drain(..))
     }
 
     /// Keeps only the entries for which `keep` returns `true`.

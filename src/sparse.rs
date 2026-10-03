@@ -77,8 +77,7 @@ impl Sparse {
     /// Returns the position stored at `index` if it is below `len`.
     #[inline]
     pub(crate) fn position(&self, index: usize, len: usize) -> Option<usize> {
-        let position = decode(*self.slots.get(index)?);
-        (position < len).then_some(position)
+        checked(*self.slots.get(index)?, len)
     }
 
     /// Returns the slot of `index` for writing.
@@ -134,7 +133,11 @@ impl Sparse {
     pub(crate) unsafe fn set_unchecked(&mut self, index: usize, position: usize) {
         debug_assert!(index < self.slots.len());
         // SAFETY: guaranteed by the caller.
-        unsafe { self.slot_mut(index).unwrap_unchecked().set_unchecked(position) };
+        unsafe {
+            self.slot_mut(index)
+                .unwrap_unchecked()
+                .set_unchecked(position)
+        };
     }
 
     /// Empties `index`, returning its position if it is below `len`.
@@ -187,8 +190,7 @@ impl SlotMut<'_> {
         if self.is_clear() {
             return None;
         }
-        let position = decode(*self.slot);
-        (position < len).then_some(position)
+        checked(*self.slot, len)
     }
 
     /// Empties the slot, returning its position if it is below `len`.
@@ -197,8 +199,7 @@ impl SlotMut<'_> {
         if self.is_clear() {
             return None;
         }
-        let position = decode(self.slot.take());
-        (position < len).then_some(position)
+        checked(self.slot.take(), len)
     }
 
     #[inline]
@@ -247,8 +248,11 @@ fn encode(position: usize) -> NonZeroU32 {
     NonZeroU32::MIN.saturating_add(position as u32)
 }
 
-/// Empty slots decode to `usize::MAX`, which is never a valid position.
+/// Decodes `slot` if it holds a position below `len`.
+///
+/// Testing for an empty slot first keeps misses to one branch.
 #[inline]
-fn decode(slot: Option<NonZeroU32>) -> usize {
-    (slot.map_or(0, NonZeroU32::get) as usize).wrapping_sub(1)
+fn checked(slot: Option<NonZeroU32>, len: usize) -> Option<usize> {
+    let position = slot?.get() as usize - 1;
+    (position < len).then_some(position)
 }

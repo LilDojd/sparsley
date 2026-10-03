@@ -215,10 +215,6 @@ impl<K: Key> Clone for SparseSet<K> {
             map: self.map.clone(),
         }
     }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.map.clone_from(&source.map);
-    }
 }
 
 impl<K: fmt::Debug> fmt::Debug for SparseSet<K> {

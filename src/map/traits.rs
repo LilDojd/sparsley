@@ -11,11 +11,6 @@ impl<K: Key, V: Clone> Clone for SparseMap<K, V> {
             dense: self.dense.clone(),
         }
     }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.sparse = source.sparse.clone_with(super::indices(source.dense.keys()));
-        self.dense.clone_from(&source.dense);
-    }
 }
 
 impl<K: Copy + fmt::Debug, V: fmt::Debug> fmt::Debug for SparseMap<K, V> {

@@ -163,6 +163,21 @@ impl<K: Key> SparseSet<K> {
         self.map.shrink_to_fit();
     }
 
+    /// Sorts the keys in dense order.
+    ///
+    /// ```
+    /// # use sparsley::SparseSet;
+    /// let mut set = SparseSet::from([5_u32, 1, 3]);
+    /// set.sort_unstable();
+    /// assert_eq!(set.as_slice(), [1, 3, 5]);
+    /// ```
+    pub fn sort_unstable(&mut self)
+    where
+        K: Ord,
+    {
+        self.map.sort_unstable_by(|(a, ()), (b, ())| a.cmp(&b));
+    }
+
     /// Returns `true` if every key of `self` is in `other`.
     #[must_use]
     pub fn is_subset(&self, other: &Self) -> bool {

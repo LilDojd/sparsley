@@ -3,6 +3,7 @@ use core::ops::{Index, IndexMut};
 
 use super::SparseMap;
 use crate::Key;
+use crate::dense::MAX_LEN;
 
 impl<K: Key, V: Clone> Clone for SparseMap<K, V> {
     fn clone(&self) -> Self {
@@ -58,7 +59,10 @@ impl<K: Key, V> IndexMut<K> for SparseMap<K, V> {
 impl<K: Key, V> Extend<(K, V)> for SparseMap<K, V> {
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
         let iter = iter.into_iter();
-        self.reserve(iter.size_hint().0);
+        // Duplicate keys may make the hint overshoot, as in `HashMap`.
+        let hint = iter.size_hint().0;
+        let additional = if self.is_empty() { hint } else { hint.div_ceil(2) };
+        self.reserve(additional.min(MAX_LEN - self.len()));
         iter.for_each(|(key, value)| {
             self.insert(key, value);
         });

@@ -131,7 +131,7 @@ pub struct IntoIter<K, V> {
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Drain<'a, K, V> {
     entries: RawEntries<K, V>,
-    marker: PhantomData<&'a mut Dense<K, V>>,
+    marker: PhantomData<(&'a mut (), K, V)>,
 }
 
 impl<'a, K, V> Drain<'a, K, V> {

@@ -6,7 +6,9 @@ extern crate alloc;
 
 mod key;
 pub mod map;
+pub mod set;
 mod sparse;
 
 pub use key::Key;
 pub use map::SparseMap;
+pub use set::SparseSet;

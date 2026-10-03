@@ -11,6 +11,17 @@ use crate::map::{self, SparseMap};
 ///
 /// A [`SparseMap`] without values: keys live in one contiguous slice, with
 /// O(1) insertion, removal and membership tests.
+///
+/// ```
+/// use sparsley::SparseSet;
+///
+/// let mut alive = SparseSet::new();
+/// assert!(alive.insert(5_u32));
+/// assert!(!alive.insert(5));
+/// alive.extend([1, 9]);
+/// assert!(alive.remove(1));
+/// assert_eq!(alive.as_slice(), [5, 9]);
+/// ```
 pub struct SparseSet<K> {
     map: SparseMap<K, ()>,
 }

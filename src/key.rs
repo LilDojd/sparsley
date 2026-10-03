@@ -8,6 +8,25 @@
 /// indices, distinct keys distinct indices. Breaking this is a logic error.
 /// The behavior is then unspecified (wrong results or panics) but never
 /// undefined.
+///
+/// # Examples
+///
+/// ```
+/// use sparsley::{Key, SparseMap};
+///
+/// #[derive(Clone, Copy)]
+/// struct Entity(u32);
+///
+/// impl Key for Entity {
+///     fn index(self) -> usize {
+///         self.0 as usize
+///     }
+/// }
+///
+/// let mut names = SparseMap::new();
+/// names.insert(Entity(4), "four");
+/// assert_eq!(names.get(Entity(4)), Some(&"four"));
+/// ```
 pub trait Key: Copy {
     /// Returns the sparse slot of this key.
     fn index(self) -> usize;

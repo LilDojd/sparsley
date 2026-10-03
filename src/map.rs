@@ -172,6 +172,16 @@ impl<K: Key, V> SparseMap<K, V> {
     }
 
     /// Returns a reference to the value of `key`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let map = SparseMap::from([(1_u32, "a")]);
+    /// assert_eq!(map.get(1), Some(&"a"));
+    /// assert_eq!(map.get(2), None);
+    /// assert_eq!(map.get(u32::MAX), None);
+    /// ```
     #[inline]
     #[must_use]
     pub fn get(&self, key: K) -> Option<&V> {
@@ -196,6 +206,17 @@ impl<K: Key, V> SparseMap<K, V> {
     /// # Panics
     ///
     /// Panics if two present keys are equal.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut health = SparseMap::from([(1_u32, 100), (2, 80)]);
+    /// let [a, b, c] = health.get_disjoint_mut([1, 2, 3]);
+    /// core::mem::swap(a.unwrap(), b.unwrap());
+    /// assert!(c.is_none());
+    /// assert_eq!(health[1], 80);
+    /// ```
     #[must_use]
     pub fn get_disjoint_mut<const N: usize>(&mut self, keys: [K; N]) -> [Option<&mut V>; N] {
         let positions = keys.map(|key| self.position(key));
@@ -219,6 +240,16 @@ impl<K: Key, V> SparseMap<K, V> {
     /// # Panics
     ///
     /// Panics if the map already holds `u32::MAX` entries or allocation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut map = SparseMap::new();
+    /// assert_eq!(map.insert(3_u32, "a"), None);
+    /// assert_eq!(map.insert(3, "b"), Some("a"));
+    /// assert_eq!(map[3], "b");
+    /// ```
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         match self.entry(key) {
@@ -233,6 +264,17 @@ impl<K: Key, V> SparseMap<K, V> {
     /// Returns the entry of `key` for in-place manipulation.
     ///
     /// Ensures `key` has a sparse slot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut counts = SparseMap::new();
+    /// for key in [3_u32, 1, 3] {
+    ///     *counts.entry(key).or_insert(0) += 1;
+    /// }
+    /// assert_eq!(counts[3], 2);
+    /// ```
     #[inline]
     pub fn entry(&mut self, key: K) -> Entry<'_, K, V> {
         Entry::new(self, key)
@@ -241,6 +283,16 @@ impl<K: Key, V> SparseMap<K, V> {
     /// Removes `key`, returning its value.
     ///
     /// The last entry moves into the vacated position.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut map = SparseMap::from([(1_u32, "a"), (2, "b"), (3, "c")]);
+    /// assert_eq!(map.remove(1), Some("a"));
+    /// assert_eq!(map.remove(1), None);
+    /// assert_eq!(map.keys(), [3, 2]);
+    /// ```
     #[inline]
     pub fn remove(&mut self, key: K) -> Option<V> {
         self.remove_entry(key).map(|(_, value)| value)
@@ -272,6 +324,19 @@ impl<K: Key, V> SparseMap<K, V> {
     ///
     /// Visits each entry once, in reverse dense order. Removed entries are
     /// replaced by already visited ones.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut map: SparseMap<u32, u32> = (0..8).map(|key| (key, key * 10)).collect();
+    /// map.retain(|key, value| {
+    ///     *value += 1;
+    ///     key % 2 == 0
+    /// });
+    /// assert_eq!(map.len(), 4);
+    /// assert_eq!(map[6], 61);
+    /// ```
     pub fn retain(&mut self, mut keep: impl FnMut(K, &mut V) -> bool) {
         for position in (0..self.len()).rev() {
             let (keys, values) = self.dense.slices_mut();

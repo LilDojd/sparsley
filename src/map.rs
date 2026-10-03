@@ -172,7 +172,7 @@ impl<K: Key, V> SparseMap<K, V> {
     #[inline]
     #[must_use]
     pub fn contains_key(&self, key: K) -> bool {
-        self.position(key).is_some()
+        self.sparse.contains(key.index())
     }
 
     /// Returns a reference to the value of `key`.
@@ -459,7 +459,7 @@ impl<K: Key, V> SparseMap<K, V> {
     fn swap_remove(&mut self, position: usize) -> (K, V) {
         let entry = self.dense.swap_remove(position);
         if let Some(&moved) = self.keys().get(position) {
-            self.sparse.set(moved.index(), position);
+            self.sparse.repoint(moved.index(), position);
         }
         entry
     }

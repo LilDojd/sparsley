@@ -86,7 +86,8 @@ impl Sparse {
         let slot = self.slots.get_mut(index)?;
         // SAFETY: `index` has a slot, so its chunk exists by the invariant.
         let chunk = unsafe { self.chunks.get_unchecked_mut(index >> CHUNK_SHIFT) };
-        Some(SlotMut { slot, chunk })
+        let clear = !*chunk;
+        Some(SlotMut { slot, chunk, clear })
     }
 
     /// Ensures `index` has a slot.
@@ -136,14 +137,29 @@ impl Sparse {
         unsafe {
             self.slot_mut(index)
                 .unwrap_unchecked()
-                .set_unchecked(position)
-        };
+                .set_unchecked(position);
+        }
     }
 
     /// Empties `index`, returning its position if it is below `len`.
     #[inline]
     pub(crate) fn take(&mut self, index: usize, len: usize) -> Option<usize> {
-        self.slot_mut(index)?.take(len)
+        checked(self.slots.get_mut(index)?.take(), len)
+    }
+
+    /// Returns `true` if `index` holds a position.
+    #[inline]
+    pub(crate) fn contains(&self, index: usize) -> bool {
+        matches!(self.slots.get(index), Some(Some(_)))
+    }
+
+    /// Points the live slot of `index` at `position`, which must be below
+    /// `MAX_LEN`. A live slot already has its chunk flag set.
+    #[inline]
+    pub(crate) fn repoint(&mut self, index: usize, position: usize) {
+        if let Some(slot) = self.slots.get_mut(index) {
+            *slot = Some(encode(position));
+        }
     }
 
     #[inline]
@@ -176,35 +192,22 @@ impl Sparse {
 pub(crate) struct SlotMut<'a> {
     slot: &'a mut Option<NonZeroU32>,
     chunk: &'a mut bool,
+    clear: bool,
 }
 
 impl SlotMut<'_> {
-    #[inline]
-    fn is_clear(&self) -> bool {
-        !*self.chunk
-    }
-
     /// Returns the stored position if it is below `len`.
     #[inline]
     pub(crate) fn position(&self, len: usize) -> Option<usize> {
-        if self.is_clear() {
+        if self.clear {
             return None;
         }
         checked(*self.slot, len)
     }
 
-    /// Empties the slot, returning its position if it is below `len`.
-    #[inline]
-    pub(crate) fn take(self, len: usize) -> Option<usize> {
-        if self.is_clear() {
-            return None;
-        }
-        checked(self.slot.take(), len)
-    }
-
     #[inline]
     fn set(self, slot: NonZeroU32) {
-        if self.is_clear() {
+        if self.clear {
             *self.chunk = true;
         }
         *self.slot = Some(slot);

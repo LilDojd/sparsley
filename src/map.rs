@@ -1,0 +1,249 @@
+//! A sparse map with packed, contiguous values.
+
+use alloc::vec::Vec;
+use core::mem;
+
+use crate::Key;
+use crate::sparse::Sparse;
+
+/// A map from [`Key`]s to values, stored densely.
+///
+/// Keys and values live in two parallel, contiguous arrays. A sparse array
+/// maps each key's [`index`](Key::index) to its dense position, giving O(1)
+/// lookup, insertion and removal, and iteration at slice speed.
+///
+/// Removal moves the last entry into the vacated position, so dense order is
+/// unspecified and positions are not stable across removals.
+///
+/// The map holds at most `u32::MAX` entries.
+pub struct SparseMap<K, V> {
+    sparse: Sparse,
+    keys: Vec<K>,
+    values: Vec<V>,
+}
+
+impl<K, V> SparseMap<K, V> {
+    /// Creates an empty map without allocating.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            sparse: Sparse::new(),
+            keys: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
+    /// Creates an empty map with room for `capacity` entries.
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            sparse: Sparse::new(),
+            keys: Vec::with_capacity(capacity),
+            values: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Returns the number of entries.
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Returns `true` if the map has no entries.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    /// Returns the number of entries the map holds without reallocating.
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.keys.capacity().min(self.values.capacity())
+    }
+
+    /// Returns the exclusive bound of key indices that have a sparse slot.
+    #[must_use]
+    pub fn key_capacity(&self) -> usize {
+        self.sparse.len()
+    }
+
+    /// Reserves room for at least `additional` more entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new capacity overflows `isize::MAX` bytes.
+    pub fn reserve(&mut self, additional: usize) {
+        self.keys.reserve(additional);
+        self.values.reserve(additional);
+    }
+
+    /// Ensures every key with index below `end` has a sparse slot.
+    pub fn reserve_keys(&mut self, end: usize) {
+        if let Some(last) = end.checked_sub(1) {
+            self.sparse.reserve(last);
+        }
+    }
+
+    /// Keys in dense order.
+    #[inline]
+    #[must_use]
+    pub fn keys(&self) -> &[K] {
+        &self.keys
+    }
+
+    /// Values in dense order.
+    #[inline]
+    #[must_use]
+    pub fn values(&self) -> &[V] {
+        &self.values
+    }
+
+    /// Mutable values in dense order.
+    ///
+    /// Keys stay fixed: reordering this slice reassigns values to keys.
+    #[inline]
+    #[must_use]
+    pub fn values_mut(&mut self) -> &mut [V] {
+        &mut self.values
+    }
+
+    /// Keys and values in dense order.
+    #[inline]
+    #[must_use]
+    pub fn as_slices(&self) -> (&[K], &[V]) {
+        (&self.keys, &self.values)
+    }
+
+    /// Keys and mutable values in dense order.
+    #[inline]
+    #[must_use]
+    pub fn as_mut_slices(&mut self) -> (&[K], &mut [V]) {
+        (&self.keys, &mut self.values)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn grow(&mut self) {
+        self.reserve(1);
+    }
+}
+
+impl<K: Key, V> SparseMap<K, V> {
+    /// Returns the dense position of `key`.
+    #[inline]
+    #[must_use]
+    pub fn position(&self, key: K) -> Option<usize> {
+        self.sparse.position(key.index(), self.len())
+    }
+
+    /// Returns `true` if the map contains `key`.
+    #[inline]
+    #[must_use]
+    pub fn contains_key(&self, key: K) -> bool {
+        self.sparse.contains(key.index())
+    }
+
+    /// Returns a reference to the value of `key`.
+    #[inline]
+    #[must_use]
+    pub fn get(&self, key: K) -> Option<&V> {
+        self.values.get(self.position(key)?)
+    }
+
+    /// Returns a mutable reference to the value of `key`.
+    #[inline]
+    #[must_use]
+    pub fn get_mut(&mut self, key: K) -> Option<&mut V> {
+        let position = self.position(key)?;
+        self.values.get_mut(position)
+    }
+
+    /// Inserts `value` at `key`, returning the previous value.
+    ///
+    /// The stored key is kept on replacement. A new entry is appended to the
+    /// dense arrays.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the map already holds `u32::MAX` entries or allocation fails.
+    #[inline]
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        let index = key.index();
+        self.sparse.reserve(index);
+        let len = self.len();
+        if let Some(position) = self.sparse.position(index, len) {
+            return Some(mem::replace(&mut self.values[position], value));
+        }
+        if len == self.keys.capacity() || len == self.values.capacity() {
+            self.grow();
+        }
+        self.sparse.set(index, len);
+        self.keys.push(key);
+        self.values.push(value);
+        None
+    }
+
+    /// Removes `key`, returning its value.
+    ///
+    /// The last entry moves into the vacated position.
+    #[inline]
+    pub fn remove(&mut self, key: K) -> Option<V> {
+        self.remove_entry(key).map(|(_, value)| value)
+    }
+
+    /// Removes `key`, returning the stored key and its value.
+    #[inline]
+    pub fn remove_entry(&mut self, key: K) -> Option<(K, V)> {
+        let position = self.sparse.take(key.index(), self.len())?;
+        Some(self.swap_remove(position))
+    }
+
+    /// Removes every entry, keeping allocations.
+    pub fn clear(&mut self) {
+        self.sparse.remove_all(self.keys.iter().map(|key| key.index()));
+        self.keys.clear();
+        self.values.clear();
+    }
+
+    /// Keeps only the entries for which `keep` returns `true`.
+    ///
+    /// Visits each entry once, in reverse dense order. Removed entries are
+    /// replaced by already visited ones.
+    pub fn retain(&mut self, mut keep: impl FnMut(K, &mut V) -> bool) {
+        for position in (0..self.len()).rev() {
+            if !keep(self.keys[position], &mut self.values[position]) {
+                self.sparse.remove(self.keys[position].index());
+                self.swap_remove(position);
+            }
+        }
+    }
+
+    /// Shrinks dense capacity to fit and releases sparse slots past the
+    /// largest key index.
+    pub fn shrink_to_fit(&mut self) {
+        self.keys.shrink_to_fit();
+        self.values.shrink_to_fit();
+        let end = self.keys.iter().map(|key| key.index() + 1).max();
+        self.sparse.shrink_to(end.unwrap_or(0));
+    }
+
+    /// Removes the entry at `position`, moving the last entry into its place.
+    /// The removed key's slot must already be empty.
+    #[inline]
+    fn swap_remove(&mut self, position: usize) -> (K, V) {
+        let key = self.keys.swap_remove(position);
+        let value = self.values.swap_remove(position);
+        if let Some(&moved) = self.keys.get(position) {
+            self.sparse.set(moved.index(), position);
+        }
+        (key, value)
+    }
+}
+
+impl<K, V> Default for SparseMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

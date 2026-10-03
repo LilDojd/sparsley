@@ -3,3 +3,10 @@
 #![no_std]
 
 extern crate alloc;
+
+mod key;
+pub mod map;
+mod sparse;
+
+pub use key::Key;
+pub use map::SparseMap;

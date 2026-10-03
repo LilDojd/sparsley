@@ -26,6 +26,7 @@ in
     pkgs.cargo-hack
     pkgs.cargo-nextest
     pkgs.cargo-show-asm
+    pkgs.perf
     pkgs.samply
     pkgs.valgrind
   ];

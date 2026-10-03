@@ -172,7 +172,7 @@ impl<K: Key, V> SparseMap<K, V> {
     #[inline]
     #[must_use]
     pub fn contains_key(&self, key: K) -> bool {
-        self.sparse.contains(key.index())
+        self.position(key).is_some()
     }
 
     /// Returns a reference to the value of `key`.
@@ -256,21 +256,23 @@ impl<K: Key, V> SparseMap<K, V> {
     /// ```
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        let index = key.index();
         let len = self.dense.len();
-        if let Some(position) = self.sparse.position(index, len) {
+        let Some(slot) = self.sparse.slot_mut(key.index()) else {
+            return self.insert_slow(key, value);
+        };
+        if let Some(position) = slot.position(len) {
             // SAFETY: `position` only returns positions below `len`.
-            let slot = unsafe { self.dense.values_mut().get_unchecked_mut(position) };
-            return Some(mem::replace(slot, value));
+            let stored = unsafe { self.dense.values_mut().get_unchecked_mut(position) };
+            return Some(mem::replace(stored, value));
         }
-        if index >= self.sparse.len() || self.dense.is_full() {
+        if self.dense.is_full() {
             return self.insert_slow(key, value);
         }
-        // SAFETY: the storage is not full and `index` has a slot, so `len`
-        // becomes a valid position below `MAX_LEN`.
+        // SAFETY: the storage is not full, so `len` becomes a valid position
+        // below `MAX_LEN`.
         unsafe {
             self.dense.push_unchecked(key, value);
-            self.sparse.set_unchecked(index, len);
+            slot.set_unchecked(len);
         }
         None
     }

@@ -153,6 +153,22 @@ fn panicking_value_drop_leaves_map_usable() {
 }
 
 #[test]
+fn panicking_clone_from_leaves_map_consistent() {
+    struct Fragile(u32);
+    impl Clone for Fragile {
+        fn clone(&self) -> Self {
+            assert_ne!(self.0, 1, "clone panic");
+            Self(self.0)
+        }
+    }
+
+    let source: SparseMap<u32, Fragile> = (0..3).map(|k| (k, Fragile(k))).collect();
+    let mut map = SparseMap::new();
+    assert!(catch_unwind(AssertUnwindSafe(|| map.clone_from(&source))).is_err());
+    assert_consistent(&map);
+}
+
+#[test]
 fn zero_sized_values() {
     thread_local!(static DROPS: Cell<usize> = const { Cell::new(0) });
     struct Unit;

@@ -1,4 +1,4 @@
-use alloc::vec;
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::num::NonZeroU32;
 
@@ -8,28 +8,37 @@ const MIN_SLOTS: usize = 64;
 
 /// Key index to dense position map.
 ///
-/// A slot stores `position + 1`, so an empty slot is all zero bits. Fresh
-/// slots come from zeroed allocations, which the OS maps lazily.
+/// A slot stores `position + 1`, so an empty slot is all zero bits and fresh
+/// slots come from zeroed allocations. System allocators back large zeroed
+/// allocations with lazily mapped pages, so untouched slots cost no memory.
 #[derive(Default)]
 pub(crate) struct Sparse {
     slots: Vec<Option<NonZeroU32>>,
 }
 
-impl Clone for Sparse {
-    fn clone(&self) -> Self {
-        Self {
-            slots: self.slots.clone(),
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.slots.clone_from(&source.slots);
-    }
-}
-
 impl Sparse {
     pub(crate) const fn new() -> Self {
         Self { slots: Vec::new() }
+    }
+
+    /// Builds `len` slots for the live key indices, given in dense order.
+    fn from_live(len: usize, live: impl Iterator<Item = usize>) -> Self {
+        let mut sparse = Self { slots: zeroed(len) };
+        for (position, index) in live.enumerate() {
+            sparse.set(index, position);
+        }
+        sparse
+    }
+
+    /// Clones `self`, touching only live slots when they are few.
+    pub(crate) fn clone_with(&self, live: impl ExactSizeIterator<Item = usize>) -> Self {
+        if is_crowded(live.len(), self.slots.len()) {
+            Self {
+                slots: self.slots.clone(),
+            }
+        } else {
+            Self::from_live(self.slots.len(), live)
+        }
     }
 
     #[inline]
@@ -51,33 +60,36 @@ impl Sparse {
 
     /// Ensures `index` has a slot.
     #[inline]
-    pub(crate) fn reserve(&mut self, index: usize) {
+    pub(crate) fn reserve(&mut self, index: usize, live: impl ExactSizeIterator<Item = usize>) {
         if index >= self.slots.len() {
-            self.grow(index);
+            self.grow(index, live);
         }
     }
 
     #[cold]
     #[inline(never)]
-    fn grow(&mut self, index: usize) {
+    fn grow(&mut self, index: usize, live: impl ExactSizeIterator<Item = usize>) {
         let len = index
             .checked_add(1)
             .expect("key index overflow")
             .max(self.slots.len() * 2)
             .max(MIN_SLOTS);
-        let mut slots = vec![None; len];
-        slots[..self.slots.len()].copy_from_slice(&self.slots);
-        self.slots = slots;
+        if is_crowded(live.len(), self.slots.len()) {
+            let mut slots = zeroed(len);
+            slots[..self.slots.len()].copy_from_slice(&self.slots);
+            self.slots = slots;
+        } else {
+            *self = Self::from_live(len, live);
+        }
     }
 
-    /// Points `index` at `position`, which must be below `MAX_LEN`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `index` has no slot.
+    /// Points `index` at `position`, which must be below `MAX_LEN`. Does
+    /// nothing if `index` has no slot.
     #[inline]
     pub(crate) fn set(&mut self, index: usize, position: usize) {
-        self.slots[index] = Some(encode(position));
+        if let Some(slot) = self.slots.get_mut(index) {
+            *slot = Some(encode(position));
+        }
     }
 
     /// Points `index` at `position`.
@@ -113,13 +125,12 @@ impl Sparse {
         }
     }
 
-    /// Empties the slots of `indices`.
-    pub(crate) fn remove_all(&mut self, indices: impl ExactSizeIterator<Item = usize>) {
-        // Scattered stores cost roughly eight sequential slot writes each.
-        if indices.len() * 8 >= self.slots.len() {
+    /// Empties the slots of the live key indices.
+    pub(crate) fn remove_all(&mut self, live: impl ExactSizeIterator<Item = usize>) {
+        if is_crowded(live.len(), self.slots.len()) {
             self.slots.fill(None);
         } else {
-            indices.for_each(|index| self.remove(index));
+            live.for_each(|index| self.remove(index));
         }
     }
 
@@ -128,6 +139,17 @@ impl Sparse {
         self.slots.truncate(end);
         self.slots.shrink_to_fit();
     }
+}
+
+/// Whether sweeping all slots beats touching each live one: a scattered
+/// store costs roughly eight sequential slot writes.
+fn is_crowded(live: usize, slots: usize) -> bool {
+    live.saturating_mul(8) >= slots
+}
+
+fn zeroed(len: usize) -> Vec<Option<NonZeroU32>> {
+    // SAFETY: the all-zero `Option<NonZeroU32>` is `None`.
+    unsafe { Box::new_zeroed_slice(len).assume_init() }.into_vec()
 }
 
 #[inline]

@@ -81,13 +81,6 @@ impl<K, V> SparseMap<K, V> {
         self.dense.reserve(additional);
     }
 
-    /// Ensures every key with index below `end` has a sparse slot.
-    pub fn reserve_keys(&mut self, end: usize) {
-        if let Some(last) = end.checked_sub(1) {
-            self.sparse.reserve(last);
-        }
-    }
-
     /// Keys in dense order.
     #[inline]
     #[must_use]
@@ -157,6 +150,13 @@ impl<K: Copy, V> SparseMap<K, V> {
 }
 
 impl<K: Key, V> SparseMap<K, V> {
+    /// Ensures every key with index below `end` has a sparse slot.
+    pub fn reserve_keys(&mut self, end: usize) {
+        if let Some(last) = end.checked_sub(1) {
+            self.sparse.reserve(last, indices(self.dense.keys()));
+        }
+    }
+
     /// Returns the dense position of `key`.
     #[inline]
     #[must_use]
@@ -255,7 +255,7 @@ impl<K: Key, V> SparseMap<K, V> {
 
     /// Removes every entry, keeping allocations.
     pub fn clear(&mut self) {
-        self.sparse.remove_all(self.dense.keys().iter().map(|key| key.index()));
+        self.sparse.remove_all(indices(self.dense.keys()));
         self.dense.clear();
     }
 
@@ -264,7 +264,7 @@ impl<K: Key, V> SparseMap<K, V> {
     /// The map is empty once this returns, even if the iterator is leaked.
     /// Allocations are kept.
     pub fn drain(&mut self) -> Drain<'_, K, V> {
-        self.sparse.remove_all(self.dense.keys().iter().map(|key| key.index()));
+        self.sparse.remove_all(indices(self.dense.keys()));
         Drain::new(&mut self.dense)
     }
 
@@ -307,4 +307,9 @@ impl<K, V> Default for SparseMap<K, V> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Sparse indices of `keys`, in dense order.
+fn indices<K: Key>(keys: &[K]) -> impl ExactSizeIterator<Item = usize> + '_ {
+    keys.iter().map(|key| key.index())
 }

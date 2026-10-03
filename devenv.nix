@@ -14,7 +14,7 @@ let
       ];
     }
   );
-  msrv = rust-bin.stable."1.86.0".minimal;
+  msrv = rust-bin.stable."1.92.0".minimal;
 in
 {
   languages.rust = {

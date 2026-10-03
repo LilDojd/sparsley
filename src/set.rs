@@ -73,11 +73,6 @@ impl<K> SparseSet<K> {
         self.map.reserve(additional);
     }
 
-    /// Ensures every key with index below `end` has a sparse slot.
-    pub fn reserve_keys(&mut self, end: usize) {
-        self.map.reserve_keys(end);
-    }
-
     /// Keys in dense order.
     #[inline]
     #[must_use]
@@ -95,6 +90,11 @@ impl<K: Copy> SparseSet<K> {
 }
 
 impl<K: Key> SparseSet<K> {
+    /// Ensures every key with index below `end` has a sparse slot.
+    pub fn reserve_keys(&mut self, end: usize) {
+        self.map.reserve_keys(end);
+    }
+
     /// Returns `true` if the set contains `key`.
     #[inline]
     #[must_use]
@@ -209,7 +209,7 @@ impl<K> fmt::Debug for Drain<'_, K> {
     }
 }
 
-impl<K: Clone> Clone for SparseSet<K> {
+impl<K: Key> Clone for SparseSet<K> {
     fn clone(&self) -> Self {
         Self {
             map: self.map.clone(),

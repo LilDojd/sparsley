@@ -2,7 +2,7 @@
 name = "sparsley"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.86"
+rust-version = "1.92"
 authors = ["LilDojd <yawner@protonmail.com>"]
 description = "Sparse set with packed, contiguous values and lazily zeroed sparse storage"
 license = "MIT OR Apache-2.0"

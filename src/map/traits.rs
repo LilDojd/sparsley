@@ -4,16 +4,16 @@ use core::ops::{Index, IndexMut};
 use super::SparseMap;
 use crate::Key;
 
-impl<K: Clone, V: Clone> Clone for SparseMap<K, V> {
+impl<K: Key, V: Clone> Clone for SparseMap<K, V> {
     fn clone(&self) -> Self {
         Self {
-            sparse: self.sparse.clone(),
+            sparse: self.sparse.clone_with(super::indices(self.dense.keys())),
             dense: self.dense.clone(),
         }
     }
 
     fn clone_from(&mut self, source: &Self) {
-        self.sparse.clone_from(&source.sparse);
+        self.sparse = source.sparse.clone_with(super::indices(source.dense.keys()));
         self.dense.clone_from(&source.dense);
     }
 }

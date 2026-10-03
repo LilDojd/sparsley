@@ -30,7 +30,7 @@ pub struct VacantEntry<'a, K, V> {
 impl<'a, K: Key, V> Entry<'a, K, V> {
     pub(super) fn new(map: &'a mut SparseMap<K, V>, key: K) -> Self {
         let index = key.index();
-        map.sparse.reserve(index);
+        map.sparse.reserve(index, super::indices(map.dense.keys()));
         match map.sparse.position(index, map.len()) {
             Some(position) => Self::Occupied(OccupiedEntry { map, position }),
             None => Self::Vacant(VacantEntry { map, key, index }),

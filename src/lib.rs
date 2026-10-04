@@ -63,3 +63,7 @@ mod sparse;
 pub use key::Key;
 pub use map::SparseMap;
 pub use set::SparseSet;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

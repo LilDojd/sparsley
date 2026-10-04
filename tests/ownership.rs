@@ -120,10 +120,12 @@ fn panicking_retain_predicate_leaves_map_usable() {
 #[test]
 fn panicking_value_drop_leaves_map_usable() {
     type Op = fn(&mut SparseMap<u32, Tracked<'_>>);
-    let cases: [(&str, Op, usize); 3] = [
+    let cases: [(&str, Op, usize); 5] = [
         ("clear", |map| map.clear(), 0),
         ("retain", |map| map.retain(|k, _| k != 2), 4),
         ("remove", |map| drop(map.remove(2)), 4),
+        ("drain", |map| drop(map.drain()), 0),
+        ("into_iter", |map| drop(std::mem::take(map).into_iter()), 0),
     ];
     for (name, op, remaining) in cases {
         let drops = Cell::new(0);
@@ -150,6 +152,31 @@ fn panicking_value_drop_leaves_map_usable() {
         drop(map);
         assert_eq!(drops.get(), 6, "{name}");
     }
+}
+
+#[test]
+fn panicking_sort_comparator_leaves_map_usable() {
+    let drops = Cell::new(0);
+    let mut map = tracked(&drops, [3, 0, 4, 1, 2]);
+    let mut comparisons = 0;
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            map.sort_unstable_by(|(a, _), (b, _)| {
+                comparisons += 1;
+                assert!(comparisons < 3, "comparator panic");
+                b.cmp(&a)
+            });
+        }))
+        .is_err()
+    );
+    assert_eq!(comparisons, 3);
+    assert_consistent(&map);
+    assert_eq!((drops.get(), map.len()), (0, 5));
+    drop(map.remove(2));
+    map.extend(tracked(&drops, [9]));
+    assert_consistent(&map);
+    drop(map);
+    assert_eq!(drops.get(), 6);
 }
 
 #[test]
@@ -231,22 +258,17 @@ fn mutable_reference_values() {
 }
 
 #[test]
-fn boxed_values() {
-    let mut map: SparseMap<u32, Box<String>> =
-        (0..8).map(|k| (k, Box::new(k.to_string()))).collect();
-    *map.insert(2, Box::new("two".into())).unwrap() += "!";
-    map.retain(|k, v| {
-        v.push('x');
-        k != 5
-    });
-
+fn cloned_values_are_independently_owned() {
+    let map: SparseMap<u32, String> = [(2, "two".to_owned()), (5, "five".to_owned())].into();
     let mut copy = map.clone();
-    copy.remove(0);
-    copy.clone_from(&map);
-    assert_eq!(copy, map);
-    assert_eq!(*copy[2], "twox");
+    copy[2].push('!');
+    assert_eq!(map[2], "two");
+    copy.insert(7, "extra".into());
 
-    let drained: Vec<_> = copy.drain().take(2).collect();
-    assert_eq!(drained.len(), 2);
-    assert_eq!(map.into_values().filter(|v| v.ends_with('x')).count(), 7);
+    copy.clone_from(&map);
+    drop(map);
+    assert_eq!(copy.len(), 2);
+    assert_eq!(copy[2], "two");
+    assert_eq!(copy[5], "five");
+    assert!(!copy.contains_key(7));
 }

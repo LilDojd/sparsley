@@ -7,15 +7,15 @@
 //! ```
 //! use sparsley::SparseMap;
 //!
-//! let mut positions = SparseMap::new();
-//! positions.insert(7_u32, [0.0_f32, 1.0]);
-//! positions.insert(42, [2.0, 3.0]);
+//! let mut velocity = SparseMap::new();
+//! velocity.insert(7_u32, [0.0_f32, 1.0]);
+//! velocity.insert(42, [2.0, 3.0]);
 //!
-//! for position in positions.values_mut() {
-//!     position[1] -= 9.81;
+//! for v in velocity.values_mut() {
+//!     v[1] -= 9.81;
 //! }
-//! assert_eq!(positions[42], [2.0, 3.0 - 9.81]);
-//! assert_eq!(positions.remove(7), Some([0.0, 1.0 - 9.81]));
+//! assert_eq!(velocity[42], [2.0, 3.0 - 9.81]);
+//! assert_eq!(velocity.remove(7), Some([0.0, 1.0 - 9.81]));
 //! ```
 //!
 //! # Layout
@@ -36,10 +36,10 @@
 //!   len 3, capacity 4, key_capacity 64
 //! ```
 //!
-//! The sparse array maps a key's index to its dense position. Slots store
-//! `position + 1` in a `u32`, so an empty slot (drawn blank) is zero: sparse
-//! memory comes from zeroed allocations, which the system allocator maps
-//! lazily, and a lookup is two loads and two comparisons.
+//! The sparse array maps each key's [`slot`](Key::slot) to its dense index.
+//! A slot stores `index + 1` in a `u32`, so an empty slot (drawn blank) is
+//! zero: sparse memory comes from zeroed allocations, which the system
+//! allocator maps lazily, and a lookup is two dependent loads.
 //!
 //! Keys and values live in one allocation as two parallel arrays, so
 //! [`SparseMap::values`] is a real `&[V]`. Shaded cells are unused capacity.
@@ -66,14 +66,26 @@
 //!   sparse[1]  3 -> 1  key 1 moved from position 2 to 0
 //! ```
 //!
-//! Dense order is therefore unspecified, and positions change on removal.
-//! `DESIGN.md` in the repository diagrams every operation.
+//! Dense order is therefore unspecified, and dense indices change on removal.
+//! The methods of [`SparseMap`] diagram their effect the same way.
+//!
+//! # Keys
+//!
+//! [`Key`] is implemented for the unsigned integers. Implement it for your own
+//! handle types; a key's slot should be small and dense, like an entity id.
+//! For generational handles, key the map by the handle's index and check
+//! generations where handles are issued: two generations of one index would
+//! share a slot.
 //!
 //! # Limits
 //!
-//! Sparse memory is four bytes per slot up to the largest key index. Use a
-//! hash map for huge or scattered keys. A map holds at most `u32::MAX`
-//! entries.
+//! Sparse memory is four bytes per slot up to the largest key slot. Use a hash
+//! map for huge or scattered keys. A map holds at most `u32::MAX` entries.
+//!
+//! # Features
+//!
+//! * `serde`: serializes [`SparseMap`] as a map and [`SparseSet`] as a
+//!   sequence.
 
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]

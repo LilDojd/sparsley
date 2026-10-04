@@ -194,6 +194,13 @@ impl<K: Key, V> SparseMap<K, V> {
         Some(unsafe { self.dense.values().get_unchecked(position) })
     }
 
+    /// Returns the stored key and a reference to its value.
+    #[inline]
+    #[must_use]
+    pub fn get_key_value(&self, key: K) -> Option<(K, &V)> {
+        self.get_index(self.get_index_of(key)?)
+    }
+
     /// Returns a mutable reference to the value of `key`.
     #[inline]
     #[must_use]
@@ -403,8 +410,8 @@ impl<K: Key, V> SparseMap<K, V> {
         self.dense.swap(a, b);
         let keys = self.dense.keys();
         let (key_a, key_b) = (keys[a], keys[b]);
-        self.sparse.set(key_a.slot(), a);
-        self.sparse.set(key_b.slot(), b);
+        self.sparse.repoint(key_a.slot(), a);
+        self.sparse.repoint(key_b.slot(), b);
     }
 
     /// Removes every entry, keeping allocations.
@@ -519,9 +526,24 @@ impl<K: Key, V> SparseMap<K, V> {
                 target = source;
             }
         }
-        for (position, key) in self.dense.keys().iter().enumerate() {
-            self.sparse.set(key.slot(), position);
+        for (index, key) in self.dense.keys().iter().enumerate() {
+            self.sparse.repoint(key.slot(), index);
         }
+    }
+
+    /// Sorts the entries by key.
+    ///
+    /// ```
+    /// # use sparsley::SparseMap;
+    /// let mut map = SparseMap::from([(5_u32, 'b'), (1, 'c'), (3, 'a')]);
+    /// map.sort_unstable_keys();
+    /// assert_eq!(map.keys(), [1, 3, 5]);
+    /// ```
+    pub fn sort_unstable_keys(&mut self)
+    where
+        K: Ord,
+    {
+        self.sort_unstable_by(|(a, _), (b, _)| a.cmp(&b));
     }
 
     /// Shrinks dense capacity to fit and releases sparse slots past the

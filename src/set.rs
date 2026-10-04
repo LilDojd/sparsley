@@ -113,6 +113,7 @@ impl<K: Key> SparseSet<K> {
     /// Returns `true` if the set contains `key`.
     #[inline]
     #[must_use]
+    #[doc(alias = "contains_key")]
     pub fn contains(&self, key: K) -> bool {
         self.map.contains_key(key)
     }
@@ -120,6 +121,7 @@ impl<K: Key> SparseSet<K> {
     /// Returns the dense index of `key`.
     #[inline]
     #[must_use]
+    #[doc(alias = "position", alias = "index_of")]
     pub fn get_index_of(&self, key: K) -> Option<usize> {
         self.map.get_index_of(key)
     }

@@ -5,9 +5,8 @@
 /// entity ids.
 ///
 /// `slot` must be deterministic and injective: equal keys must produce equal
-/// slots, distinct keys distinct slots. Breaking this is a logic error.
-/// The behavior is then unspecified (wrong results or panics) but never
-/// undefined.
+/// slots, distinct keys distinct slots. Breaking this results in an
+/// unspecified behavior.
 ///
 /// # Examples
 ///
@@ -29,6 +28,7 @@
 /// ```
 pub trait Key: Copy {
     /// Returns the sparse slot of this key.
+    #[doc(alias = "index")]
     fn slot(self) -> usize;
 }
 

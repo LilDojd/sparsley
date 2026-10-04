@@ -164,6 +164,7 @@ impl<K: Key, V> SparseMap<K, V> {
     /// Returns the dense index of `key`.
     #[inline]
     #[must_use]
+    #[doc(alias = "position", alias = "index_of")]
     pub fn get_index_of(&self, key: K) -> Option<usize> {
         self.sparse.get(key.slot(), self.len())
     }

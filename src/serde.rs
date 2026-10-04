@@ -14,7 +14,7 @@ use ::serde::ser::{Serialize, Serializer};
 use crate::{Key, SparseMap, SparseSet};
 
 /// Entries preallocated from an untrusted size hint.
-const MAX_PREALLOCATED: usize = 1 << 12;
+const MAX_PREALLOCATED: usize = 4096;
 
 impl<K: Key + Serialize, V: Serialize> Serialize for SparseMap<K, V> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

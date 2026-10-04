@@ -873,6 +873,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sparsley-diagram"
+version = "0.0.0"
+dependencies = [
+ "sparsley",
+]
+
+[[package]]
 name = "spin"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

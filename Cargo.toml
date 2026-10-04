@@ -10,7 +10,7 @@ keywords = ["sparse-set", "ecs", "map", "collection", "no-std"]
 categories = ["data-structures", "game-development", "no-std"]
 
 [workspace]
-members = ["bench"]
+members = ["bench", "diagram"]
 
 [workspace.lints.rust]
 missing_docs = "warn"

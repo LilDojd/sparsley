@@ -51,6 +51,13 @@ fn run<S: Store>(workload: &str, keys: &Keys, reps: usize) -> f64 {
             let mut fresh = match workload {
                 "insert" => Some(S::reserved(keys.domain, keys.n)),
                 "insert_grow" => Some(S::empty(keys.domain)),
+                "remove" => {
+                    let mut full = S::reserved(keys.domain, keys.n);
+                    for &key in &keys.live {
+                        full.insert(key, u64::from(key));
+                    }
+                    Some(full)
+                }
                 _ => None,
             };
             let start = Instant::now();
@@ -61,6 +68,10 @@ fn run<S: Store>(workload: &str, keys: &Keys, reps: usize) -> f64 {
                         fresh.insert(key, u64::from(key));
                     }
                     black_box(fresh);
+                }
+                "remove" => {
+                    let full = fresh.as_mut().expect("full store");
+                    sum(keys.hits.iter().map(|&k| full.remove(k).unwrap_or(0)));
                 }
                 "get_hit" => sum(keys.hits.iter().map(|&k| store.get(k).unwrap_or(0))),
                 "get_miss" => sum(keys.misses.iter().map(|&k| store.get(k).unwrap_or(0))),

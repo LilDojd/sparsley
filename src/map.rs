@@ -257,7 +257,7 @@ impl<K: Key, V> SparseMap<K, V> {
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let len = self.dense.len();
-        let Some(slot) = self.sparse.slot_mut(key.index()) else {
+        let Some(slot) = self.sparse.flagged_slot(key.index()) else {
             return self.insert_slow(key, value);
         };
         if let Some(position) = slot.position(len) {

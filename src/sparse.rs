@@ -19,16 +19,19 @@ const CHUNK_SHIFT: u32 = 10;
 /// One flag per page-sized chunk of slots records whether the chunk may hold a
 /// non-empty slot. Insertion writes into a clear chunk without reading it
 /// first, so a fresh page takes one write fault instead of a read fault
-/// followed by a copy-on-write fault.
+/// followed by a copy-on-write fault. Slots below `flagged` lie in flagged
+/// chunks, so insertion there skips the flags entirely.
 ///
 /// # Invariants
 ///
 /// * `chunks.len() == slots.len().div_ceil(1 << CHUNK_SHIFT)`.
 /// * If a slot is non-empty, its chunk flag is set.
+/// * `flagged <= slots.len()`, and every chunk below `flagged` is flagged.
 #[derive(Default)]
 pub(crate) struct Sparse {
     slots: Vec<Option<NonZeroU32>>,
     chunks: Vec<bool>,
+    flagged: usize,
 }
 
 impl Sparse {
@@ -36,6 +39,7 @@ impl Sparse {
         Self {
             slots: Vec::new(),
             chunks: Vec::new(),
+            flagged: 0,
         }
     }
 
@@ -45,6 +49,7 @@ impl Sparse {
         Self {
             slots,
             chunks: vec![false; chunks(len)],
+            flagged: 0,
         }
     }
 
@@ -63,6 +68,7 @@ impl Sparse {
             Self {
                 slots: self.slots.clone(),
                 chunks: self.chunks.clone(),
+                flagged: self.flagged,
             }
         } else {
             Self::from_live(self.slots.len(), live)
@@ -78,6 +84,17 @@ impl Sparse {
     #[inline]
     pub(crate) fn position(&self, index: usize, len: usize) -> Option<usize> {
         checked(*self.slots.get(index)?, len)
+    }
+
+    /// Returns the slot of `index` if its chunk is known to be flagged.
+    #[inline]
+    pub(crate) fn flagged_slot(&mut self, index: usize) -> Option<FlaggedSlot<'_>> {
+        if index < self.flagged {
+            // SAFETY: `flagged <= slots.len()`.
+            Some(FlaggedSlot(unsafe { self.slots.get_unchecked_mut(index) }))
+        } else {
+            None
+        }
     }
 
     /// Returns the slot of `index` for writing.
@@ -110,6 +127,8 @@ impl Sparse {
             let mut grown = Self::zeroed(len);
             grown.slots[..self.slots.len()].copy_from_slice(&self.slots);
             grown.chunks[..self.chunks.len()].copy_from_slice(&self.chunks);
+            grown.flagged = self.flagged;
+            grown.advance();
             *self = grown;
         } else {
             *self = Self::from_live(len, live);
@@ -122,6 +141,7 @@ impl Sparse {
     pub(crate) fn set(&mut self, index: usize, position: usize) {
         if let Some(slot) = self.slot_mut(index) {
             slot.set(encode(position));
+            self.advance();
         }
     }
 
@@ -139,6 +159,16 @@ impl Sparse {
                 .unwrap_unchecked()
                 .set_unchecked(position);
         }
+        self.advance();
+    }
+
+    /// Moves `flagged` past the following flagged chunks.
+    fn advance(&mut self) {
+        let mut chunk = self.flagged >> CHUNK_SHIFT;
+        while self.chunks.get(chunk).is_some_and(|&flag| flag) {
+            chunk += 1;
+        }
+        self.flagged = (chunk << CHUNK_SHIFT).min(self.slots.len());
     }
 
     /// Empties `index`, returning its position if it is below `len`.
@@ -173,7 +203,8 @@ impl Sparse {
     pub(crate) fn remove_all(&mut self, live: impl ExactSizeIterator<Item = usize>) {
         if is_crowded(live.len(), self.slots.len()) {
             self.slots.fill(None);
-            self.chunks.fill(false);
+            self.chunks.fill(true);
+            self.flagged = self.slots.len();
         } else {
             live.for_each(|index| self.remove(index));
         }
@@ -185,6 +216,34 @@ impl Sparse {
         self.slots.shrink_to_fit();
         self.chunks.truncate(chunks(end));
         self.chunks.shrink_to_fit();
+        self.flagged = self.flagged.min(self.slots.len());
+    }
+}
+
+/// A slot in a flagged chunk.
+pub(crate) struct FlaggedSlot<'a>(&'a mut Option<NonZeroU32>);
+
+impl FlaggedSlot<'_> {
+    /// Returns the stored position if it is below `len`.
+    #[inline]
+    pub(crate) fn position(&self, len: usize) -> Option<usize> {
+        checked(*self.0, len)
+    }
+
+    /// Points the slot at `position`.
+    ///
+    /// # Safety
+    ///
+    /// `position` must be below `MAX_LEN`.
+    #[inline]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "positions are below `MAX_LEN`"
+    )]
+    pub(crate) unsafe fn set_unchecked(self, position: usize) {
+        debug_assert!(position < MAX_LEN);
+        // SAFETY: guaranteed by the caller; `position + 1` cannot wrap to zero.
+        *self.0 = Some(unsafe { NonZeroU32::new_unchecked(position as u32 + 1) });
     }
 }
 

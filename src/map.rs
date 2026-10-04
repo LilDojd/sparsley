@@ -77,6 +77,13 @@ impl<K, V> SparseMap<K, V> {
 
     /// Reserves room for at least `additional` more entries.
     ///
+    /// Growing at least doubles the capacity.
+    ///
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.reserve(5);
+    }]
+    ///
     /// # Panics
     ///
     /// Panics if the capacity would exceed `u32::MAX` entries or `isize::MAX`
@@ -154,7 +161,15 @@ impl<K: Copy, V> SparseMap<K, V> {
 }
 
 impl<K: Key, V> SparseMap<K, V> {
-    /// Ensures every key with index below `end` has a sparse slot.
+    /// Ensures every key whose slot is below `end` has a sparse slot.
+    ///
+    /// The sparse array grows to at least twice its size, and to at least 64
+    /// slots.
+    ///
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.reserve_keys(100);
+    }]
     pub fn reserve_keys(&mut self, end: usize) {
         if let Some(last) = end.checked_sub(1) {
             self.sparse.reserve(last, indices(self.dense.keys()));
@@ -162,6 +177,15 @@ impl<K: Key, V> SparseMap<K, V> {
     }
 
     /// Returns the dense index of `key`.
+    ///
+    /// An empty slot is a miss; otherwise the slot holds the dense index plus
+    /// one, checked against `len`. Dense keys are never read.
+    ///
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.get_index_of(7);
+        map.get_index_of(4);
+    }]
     #[inline]
     #[must_use]
     #[doc(alias = "position", alias = "index_of")]
@@ -249,24 +273,11 @@ impl<K: Key, V> SparseMap<K, V> {
     /// The stored key is kept on replacement. A new entry is appended to the
     /// dense arrays.
     ///
-    /// <!-- diagram: insert -->
-    /// ```text
-    /// map.insert(9, 'd') -> None
-    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-    ///           ┌───┬───┬───┬───┬───┬───┬───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┐
-    ///   sparse  │   │ 3 │   │ 1 │   │   │   │ 2 │   ┃ 4 ┃   │   │   │   │   │   │ …
-    ///           └───┴───┴───┴───┴───┴───┴───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┘
-    ///                         ╭───────────────────────╯
-    ///             0   1   2   ▼
-    ///           ┌───┬───┬───┲━━━┓
-    ///   keys    │ 3 │ 7 │ 1 ┃ 9 ┃
-    ///           ├───┼───┼───╊━━━┫
-    ///   values  │ a │ b │ c ┃ d ┃
-    ///           └───┴───┴───┺━━━┛
-    ///
-    ///   len 3 -> 4, capacity 4, key_capacity 64
-    ///   sparse[9]  0 -> 4  key 9 pushed at position 3
-    /// ```
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.insert(9, 'd');
+        map.insert(7, 'B');
+    }]
     ///
     /// # Panics
     ///
@@ -320,6 +331,12 @@ impl<K: Key, V> SparseMap<K, V> {
     ///
     /// Ensures `key` has a sparse slot.
     ///
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.entry(7).or_insert('x');
+        map.entry(9).or_insert('d');
+    }]
+    ///
     /// # Examples
     ///
     /// ```
@@ -339,25 +356,10 @@ impl<K: Key, V> SparseMap<K, V> {
     ///
     /// The last entry moves into the gap.
     ///
-    /// <!-- diagram: remove -->
-    /// ```text
-    /// map.remove(3) -> Some('a')
-    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
-    ///   sparse  │   ┃ 1 ┃   ┃   ┃   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
-    ///           └───┺━━━┹───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
-    ///             ╭───╯
-    ///             ▼   1   2   3
-    ///           ┏━━━┱───┲━━━┱───┐
-    ///   keys    ┃ 1 ┃ 7 ┃░░░┃░░░│
-    ///           ┣━━━╉───╊━━━╉───┤
-    ///   values  ┃ c ┃ b ┃░░░┃░░░│
-    ///           ┗━━━┹───┺━━━┹───┘
-    ///
-    ///   len 3 -> 2, capacity 4, key_capacity 64
-    ///   sparse[3]  1 -> 0  key 3 removed from position 0
-    ///   sparse[1]  3 -> 1  key 1 moved from position 2 to 0
-    /// ```
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.remove(3);
+    }]
     ///
     /// # Examples
     ///
@@ -381,6 +383,11 @@ impl<K: Key, V> SparseMap<K, V> {
     }
 
     /// Removes the entry at dense `index`, moving the last entry into the gap.
+    ///
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.swap_remove_index(0);
+    }]
     ///
     /// ```
     /// # use sparsley::SparseMap;
@@ -417,25 +424,13 @@ impl<K: Key, V> SparseMap<K, V> {
 
     /// Removes every entry, keeping allocations.
     ///
-    /// <!-- diagram: clear -->
-    /// ```text
-    /// map.clear()
-    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┐
-    ///   sparse  │   ┃   ┃   ┃   ┃   │   │   ┃   ┃   │   │   │   │   │   │   │   │ …
-    ///           └───┺━━━┹───┺━━━┹───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┘
-    ///             0   1   2   3
-    ///           ┏━━━┳━━━┳━━━┱───┐
-    ///   keys    ┃░░░┃░░░┃░░░┃░░░│
-    ///           ┣━━━╋━━━╋━━━╉───┤
-    ///   values  ┃░░░┃░░░┃░░░┃░░░│
-    ///           ┗━━━┻━━━┻━━━┹───┘
+    /// Zeroes only the live slots, or every slot once an eighth of them are
+    /// live.
     ///
-    ///   len 3 -> 0, capacity 4, key_capacity 64
-    ///   sparse[3]  1 -> 0  key 3 removed from position 0
-    ///   sparse[7]  2 -> 0  key 7 removed from position 1
-    ///   sparse[1]  3 -> 0  key 1 removed from position 2
-    /// ```
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.clear();
+    }]
     pub fn clear(&mut self) {
         self.sparse.remove_all(indices(self.dense.keys()));
         self.dense.clear();
@@ -455,26 +450,10 @@ impl<K: Key, V> SparseMap<K, V> {
     /// Visits each entry once, in reverse dense order. Removed entries are
     /// replaced by already visited ones.
     ///
-    /// <!-- diagram: retain -->
-    /// ```text
-    /// map.retain(|key, _| key > 5)
-    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┐
-    ///   sparse  │   ┃   ┃   ┃   ┃   │   │   ┃ 1 ┃   │   │   │   │   │   │   │   │ …
-    ///           └───┺━━━┹───┺━━━┹───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┘
-    ///             ╭───────────────────────────╯
-    ///             ▼   1   2   3
-    ///           ┏━━━┳━━━┳━━━┱───┐
-    ///   keys    ┃ 7 ┃░░░┃░░░┃░░░│
-    ///           ┣━━━╋━━━╋━━━╉───┤
-    ///   values  ┃ b ┃░░░┃░░░┃░░░│
-    ///           ┗━━━┻━━━┻━━━┹───┘
-    ///
-    ///   len 3 -> 1, capacity 4, key_capacity 64
-    ///   sparse[3]  1 -> 0  key 3 removed from position 0
-    ///   sparse[1]  3 -> 0  key 1 removed from position 2
-    ///   sparse[7]  2 -> 1  key 7 moved from position 1 to 0
-    /// ```
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(3, 'a'), (7, 'b'), (1, 'c')]);
+        map.retain(|key, _| key > 5);
+    }]
     ///
     /// # Examples
     ///
@@ -533,6 +512,11 @@ impl<K: Key, V> SparseMap<K, V> {
     }
 
     /// Sorts the entries by key.
+    ///
+    #[doc = sparsley_diagram::diagram! {
+        let mut map = SparseMap::from([(9, 'a'), (3, 'b'), (7, 'c')]);
+        map.sort_unstable_keys();
+    }]
     ///
     /// ```
     /// # use sparsley::SparseMap;

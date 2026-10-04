@@ -1,4 +1,4 @@
-use alloc::alloc::{Layout, alloc, dealloc, handle_alloc_error};
+use alloc::alloc::{Layout, alloc, dealloc, handle_alloc_error, realloc};
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr::{self, NonNull};
@@ -218,35 +218,63 @@ impl<K, V> Dense<K, V> {
     /// Moves the entries into an allocation for exactly `cap` entries.
     fn reallocate(&mut self, cap: usize) {
         debug_assert!(self.len <= cap && cap <= MAX_LEN);
-        let (layout, offset) = layout::<K, V>(cap).unwrap_or_else(|| capacity_overflow());
-        let (keys, values) = if layout.size() == 0 {
-            (NonNull::dangling(), NonNull::dangling())
+        let old = Layouts::new::<K, V>(self.cap).expect("layout was valid at allocation");
+        let new = Layouts::new::<K, V>(cap).unwrap_or_else(|| capacity_overflow());
+        if cap > self.cap && old.layout.size() != 0 {
+            // SAFETY: the block was allocated with `old.layout`, and the new
+            // size is larger, hence non-zero. Growing keeps the first array in
+            // place, so only the second one moves, to its new offset.
+            unsafe {
+                let base = NonNull::new(realloc(self.base(), old.layout, new.layout.size()))
+                    .unwrap_or_else(|| handle_alloc_error(new.layout));
+                let (from, to, bytes) = if KeysFirst::<K, V>::VALUE {
+                    (old.values, new.values, self.len * mem::size_of::<V>())
+                } else {
+                    (old.keys, new.keys, self.len * mem::size_of::<K>())
+                };
+                ptr::copy(base.as_ptr().add(from), base.as_ptr().add(to), bytes);
+                (self.keys, self.values) = new.split(base);
+            }
         } else {
-            // SAFETY: the layout has a non-zero size.
-            let base = NonNull::new(unsafe { alloc(layout) })
-                .unwrap_or_else(|| handle_alloc_error(layout));
-            // SAFETY: `offset` is the in-bounds, aligned start of the values.
-            (base.cast(), unsafe { base.byte_add(offset) }.cast())
-        };
-        // SAFETY: the old and new arrays are disjoint, and both hold `len`.
-        unsafe {
-            ptr::copy_nonoverlapping(self.keys.as_ptr(), keys.as_ptr(), self.len);
-            ptr::copy_nonoverlapping(self.values.as_ptr(), values.as_ptr(), self.len);
-            self.deallocate();
+            let (keys, values) = if new.layout.size() == 0 {
+                (NonNull::dangling(), NonNull::dangling())
+            } else {
+                // SAFETY: the layout has a non-zero size.
+                let base = NonNull::new(unsafe { alloc(new.layout) })
+                    .unwrap_or_else(|| handle_alloc_error(new.layout));
+                // SAFETY: `base` is an allocation of `new.layout`.
+                unsafe { new.split(base) }
+            };
+            // SAFETY: the old and new arrays are disjoint, and both hold `len`.
+            unsafe {
+                ptr::copy_nonoverlapping(self.keys.as_ptr(), keys.as_ptr(), self.len);
+                ptr::copy_nonoverlapping(self.values.as_ptr(), values.as_ptr(), self.len);
+                self.deallocate();
+            }
+            (self.keys, self.values) = (keys, values);
         }
-        self.keys = keys;
-        self.values = values;
         self.cap = cap;
+    }
+
+    /// The start of the allocation: the array laid out first.
+    fn base(&self) -> *mut u8 {
+        if KeysFirst::<K, V>::VALUE {
+            self.keys.as_ptr().cast()
+        } else {
+            self.values.as_ptr().cast()
+        }
     }
 
     /// # Safety
     ///
     /// The allocation must not be used afterwards.
     unsafe fn deallocate(&mut self) {
-        let (layout, _) = layout::<K, V>(self.cap).expect("layout was valid at allocation");
+        let layout = Layouts::new::<K, V>(self.cap)
+            .expect("layout was valid at allocation")
+            .layout;
         if layout.size() != 0 {
-            // SAFETY: `keys` points to an allocation of this layout.
-            unsafe { dealloc(self.keys.as_ptr().cast(), layout) };
+            // SAFETY: `base` points to an allocation of this layout.
+            unsafe { dealloc(self.base(), layout) };
         }
     }
 }
@@ -374,11 +402,56 @@ impl<T> Drop for DropSlice<T> {
     }
 }
 
-/// The allocation layout for `cap` entries and the byte offset of the values.
-fn layout<K, V>(cap: usize) -> Option<(Layout, usize)> {
-    let keys = Layout::array::<K>(cap).ok()?;
-    let values = Layout::array::<V>(cap).ok()?;
-    keys.extend(values).ok()
+/// Whether the keys are laid out before the values. The larger array comes
+/// first, so growing in place moves only the smaller one.
+struct KeysFirst<K, V>(PhantomData<(K, V)>);
+
+impl<K, V> KeysFirst<K, V> {
+    const VALUE: bool = mem::size_of::<K>() > mem::size_of::<V>();
+}
+
+/// The allocation layout for `cap` entries and the byte offsets of both arrays.
+struct Layouts {
+    layout: Layout,
+    keys: usize,
+    values: usize,
+}
+
+impl Layouts {
+    /// Pointers to both arrays of an allocation with this layout.
+    ///
+    /// # Safety
+    ///
+    /// `base` must point to an allocation of `self.layout`.
+    unsafe fn split<K, V>(&self, base: NonNull<u8>) -> (NonNull<K>, NonNull<V>) {
+        // SAFETY: both offsets lie within the allocation and are aligned.
+        unsafe {
+            (
+                base.byte_add(self.keys).cast(),
+                base.byte_add(self.values).cast(),
+            )
+        }
+    }
+
+    fn new<K, V>(cap: usize) -> Option<Self> {
+        let keys = Layout::array::<K>(cap).ok()?;
+        let values = Layout::array::<V>(cap).ok()?;
+        Some(if KeysFirst::<K, V>::VALUE {
+            let (layout, values) = keys.extend(values).ok()?;
+            Self {
+                layout,
+                keys: 0,
+                values,
+            }
+        } else {
+            let (layout, keys) = values.extend(keys).ok()?;
+            Self {
+                layout,
+                keys,
+                values: 0,
+            }
+        })
+    }
 }
 
 #[cold]

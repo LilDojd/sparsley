@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/sparsley_logo.svg" alt="sparsley" width="420">
+  <img src="assets/sparsley_logo.svg" alt="sparsley" width="240">
 </p>
 
 # sparsley
@@ -45,46 +45,6 @@ assert_eq!(velocity.remove(Entity(42)), Some([0.0, -19.62]));
 let mut alive = SparseSet::new();
 alive.insert(3_u32);
 assert!(alive.contains(3));
-```
-
-## Layout
-
-<!-- diagram: layout -->
-```text
-            0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-          ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
-  sparse  │   │ 3 │   │ 1 │   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
-          └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
-            0   1   2
-          ┌───┬───┬───┐
-  keys    │ 3 │ 7 │ 1 │
-          ├───┼───┼───┤
-  values  │ a │ b │ c │
-          └───┴───┴───┘
-
-  len 3, capacity 3, key_capacity 64
-```
-
-Removal moves the last entry into the hole and sets the slot to 0
-
-<!-- diagram: remove -->
-```text
-map.remove(3) -> Some('a')
-            0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-          ┌───┲━━━┱───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
-  sparse  │   ┃ 1 ┃   ┃   ┃   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
-          └───┺━━━┹───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
-            ╭───╯
-            ▼   1   2
-          ┏━━━┱───┲━━━┓
-  keys    ┃ 1 ┃ 7 ┃░░░┃
-          ┣━━━╉───╊━━━┫
-  values  ┃ c ┃ b ┃░░░┃
-          ┗━━━┹───┺━━━┛
-
-  len 3 -> 2, capacity 3, key_capacity 64
-  sparse[3]  1 -> 0  key 3 removed from index 0
-  sparse[1]  3 -> 1  key 1 moved from index 2 to 0
 ```
 
 ## When to use it

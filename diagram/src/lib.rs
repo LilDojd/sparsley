@@ -13,22 +13,26 @@
 //! <!-- diagram: crate -->
 //! ```text
 //! map.remove(3) -> Some('a')
-//!             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  ..
-//!   sparse    .   1*  .   .*  .   .   .   2   .   .   .   .   .   .   .   .
-//!
+//!             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+//!           ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+//!   sparse  │   │ 1*│   │  *│   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
+//!           └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
 //!             0   1   2
-//!   keys      1*  7   _*
-//!   values    c*  b   _*
+//!           ┌───┬───┬───┐
+//!   keys    │ 1*│ 7 │░░*│
+//!           ├───┼───┼───┤
+//!   values  │ c*│ b │░░*│
+//!           └───┴───┴───┘
 //!
 //!   len 3 -> 2, capacity 3, key_capacity 64
-//!   sparse[3]  1 -> .  key 3 removed from position 0
+//!   sparse[3]  1 -> 0  key 3 removed from position 0
 //!   sparse[1]  3 -> 1  key 1 moved from position 2 to 0
 //! ```
 //!
-//! Sparse slots store `position + 1`; `.` is an empty slot. `_` is unused
-//! dense capacity, and `*` marks cells the call changed. The notes list each
-//! slot the call rewrote, or the slot a lookup read. Only the first
-//! [`COLUMNS`] slots and positions are drawn.
+//! Sparse slots store `position + 1`; an empty slot is zero and drawn blank.
+//! Shaded cells are unused dense capacity, and `*` marks cells the call
+//! changed. The notes list each slot the call rewrote, or the slot a lookup
+//! read. Only the first [`COLUMNS`] slots and positions are drawn.
 
 use std::fmt::{Display, Write};
 
@@ -36,6 +40,9 @@ use sparsley::{Key, SparseMap};
 
 /// The number of sparse slots and dense positions drawn.
 pub const COLUMNS: usize = 16;
+
+/// The text of an unused dense cell.
+const UNUSED: &str = "░";
 
 /// The observable state of a map, read through its public API.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,7 +88,10 @@ impl Snapshot {
     }
 
     fn sparse_cells(&self) -> Vec<String> {
-        self.slots.iter().map(|&slot| slot_text(slot)).collect()
+        self.slots
+            .iter()
+            .map(|&slot| slot.map_or_else(String::new, |_| slot_text(slot)))
+            .collect()
     }
 
     fn dense_cells(&self, column: impl Fn(usize) -> String) -> Vec<String> {
@@ -90,7 +100,7 @@ impl Snapshot {
                 if position < self.len() {
                     column(position)
                 } else {
-                    "_".into()
+                    UNUSED.into()
                 }
             })
             .collect()
@@ -146,39 +156,74 @@ pub fn index<K: Key>(key: K) -> usize {
 }
 
 fn draw(out: &mut String, before: &Snapshot, after: &Snapshot) {
-    let slots = after.slots.len();
-    let mut header = indices(slots);
-    if after.key_capacity > slots {
-        header.push("..".into());
+    let sparse = [("sparse", after.sparse_cells(), before.sparse_cells())];
+    let dense = [
+        ("keys", after.key_cells(), before.key_cells()),
+        ("values", after.value_cells(), before.value_cells()),
+    ];
+    let width = sparse
+        .iter()
+        .chain(&dense)
+        .flat_map(|(_, cells, _)| cells)
+        .map(|cell| cell.chars().count())
+        .chain([after
+            .slots
+            .len()
+            .max(after.capacity.min(COLUMNS))
+            .to_string()
+            .len()])
+        .max()
+        .unwrap_or(0)
+        .max(2);
+    table(out, &sparse, width, after.key_capacity > after.slots.len());
+    table(out, &dense, width, after.capacity > COLUMNS);
+}
+
+/// Writes rows of cells as a table under a header of positions, marking cells
+/// that differ from the old row with `*`. `more` marks columns left out.
+fn table(out: &mut String, rows: &[(&str, Vec<String>, Vec<String>)], width: usize, more: bool) {
+    let columns = rows[0].1.len();
+    if columns == 0 {
+        for (label, ..) in rows {
+            let _ = writeln!(out, "  {label:<8}(none)");
+        }
+        return;
     }
-    if slots == 0 {
-        out.push_str("  sparse    (none)\n");
-    } else {
-        row(out, "", &header, None);
-        row(
-            out,
-            "sparse",
-            &after.sparse_cells(),
-            Some(&before.sparse_cells()),
-        );
+    let border = |left, middle, right| {
+        let line = vec!["─".repeat(width + 1); columns].join(middle);
+        format!("          {left}{line}{right}\n")
+    };
+    out.push_str("           ");
+    for column in 0..columns {
+        let _ = write!(out, "{column:>width$}  ");
     }
     out.push('\n');
-    let mut header = indices(after.capacity.min(COLUMNS));
-    if after.capacity > COLUMNS {
-        header.push("..".into());
+    out.push_str(&border("┌", "┬", "┐"));
+    for (i, (label, cells, old)) in rows.iter().enumerate() {
+        if i > 0 {
+            out.push_str(&border("├", "┼", "┤"));
+        }
+        let _ = write!(out, "  {label:<8}│");
+        for (column, cell) in cells.iter().enumerate() {
+            let unused = cell == UNUSED;
+            let mark = match (old.get(column) == Some(cell), unused) {
+                (false, _) => "*",
+                (true, true) => UNUSED,
+                (true, false) => " ",
+            };
+            let text = if unused {
+                UNUSED.repeat(width)
+            } else {
+                cell.clone()
+            };
+            let _ = write!(out, "{text:>width$}{mark}│");
+        }
+        if more {
+            out.push_str(" …");
+        }
+        out.push('\n');
     }
-    if after.capacity == 0 {
-        out.push_str("  keys      (none)\n  values    (none)\n");
-    } else {
-        row(out, "", &header, None);
-        row(out, "keys", &after.key_cells(), Some(&before.key_cells()));
-        row(
-            out,
-            "values",
-            &after.value_cells(),
-            Some(&before.value_cells()),
-        );
-    }
+    out.push_str(&border("└", "┴", "┘"));
 }
 
 fn summary(out: &mut String, before: &Snapshot, after: &Snapshot) {
@@ -255,7 +300,7 @@ fn notes(out: &mut String, before: &Snapshot, after: &Snapshot, focus: Option<us
 }
 
 fn slot_text(position: Option<usize>) -> String {
-    position.map_or_else(|| ".".into(), |position| (position + 1).to_string())
+    position.map_or_else(|| "0".into(), |position| (position + 1).to_string())
 }
 
 fn change(before: usize, after: usize) -> String {
@@ -264,20 +309,6 @@ fn change(before: usize, after: usize) -> String {
     } else {
         format!("{before} -> {after}")
     }
-}
-
-fn indices(count: usize) -> Vec<String> {
-    (0..count).map(|i| i.to_string()).collect()
-}
-
-/// Writes a labelled row, marking cells that differ from `before` with `*`.
-fn row(out: &mut String, label: &str, cells: &[String], before: Option<&[String]>) {
-    let _ = write!(out, "  {label:<8}");
-    for (i, cell) in cells.iter().enumerate() {
-        let changed = before.is_some_and(|before| before.get(i) != Some(cell));
-        let _ = write!(out, "{cell:>3}{}", if changed { '*' } else { ' ' });
-    }
-    out.push('\n');
 }
 
 fn finish(out: &str) -> String {

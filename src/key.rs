@@ -1,11 +1,11 @@
 /// A type that can key into a sparse set.
 ///
-/// Keys map to sparse slots through [`Key::index`]. Sparse storage grows to
-/// the largest index inserted, so indices should be small and dense, such as
+/// Keys map to sparse slots through [`Key::slot`]. Sparse storage grows to
+/// the largest slot inserted, so slots should be small and dense, such as
 /// entity ids.
 ///
-/// `index` must be deterministic and injective: equal keys must produce equal
-/// indices, distinct keys distinct indices. Breaking this is a logic error.
+/// `slot` must be deterministic and injective: equal keys must produce equal
+/// slots, distinct keys distinct slots. Breaking this is a logic error.
 /// The behavior is then unspecified (wrong results or panics) but never
 /// undefined.
 ///
@@ -18,7 +18,7 @@
 /// struct Entity(u32);
 ///
 /// impl Key for Entity {
-///     fn index(self) -> usize {
+///     fn slot(self) -> usize {
 ///         self.0 as usize
 ///     }
 /// }
@@ -29,7 +29,7 @@
 /// ```
 pub trait Key: Copy {
     /// Returns the sparse slot of this key.
-    fn index(self) -> usize;
+    fn slot(self) -> usize;
 }
 
 macro_rules! impl_key {
@@ -37,7 +37,7 @@ macro_rules! impl_key {
         impl Key for $ty {
             #[inline]
             #[allow(clippy::cast_possible_truncation, reason = "only implemented where lossless")]
-            fn index(self) -> usize {
+            fn slot(self) -> usize {
                 self as usize
             }
         }

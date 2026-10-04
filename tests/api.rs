@@ -17,7 +17,7 @@ fn queries_never_allocate() {
     for key in [0, 1, usize::MAX] {
         assert_eq!(map.get(key), None);
         assert_eq!(map.get_mut(key), None);
-        assert_eq!(map.position(key), None);
+        assert_eq!(map.get_index_of(key), None);
         assert!(!map.contains_key(key));
         assert_eq!(map.remove(key), None);
         assert_eq!(map.get_disjoint_mut([key]), [None]);
@@ -76,12 +76,12 @@ fn entry_api() {
     map.entry(3).and_modify(|v| v.push('!')).or_default();
     assert_eq!(map[3], "c!");
 
-    let position = map.position(7);
+    let position = map.get_index_of(7);
     let Entry::Occupied(mut entry) = map.entry(7) else {
         panic!("7 is present");
     };
     assert_eq!(entry.key(), 7);
-    assert_eq!(Some(entry.position()), position);
+    assert_eq!(Some(entry.index()), position);
     assert_eq!(entry.insert("G".into()), "g");
     assert_eq!(entry.get(), "G");
     entry.get_mut().push('?');

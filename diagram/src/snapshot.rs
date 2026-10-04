@@ -66,7 +66,7 @@ where
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             kind: Kind::Map,
-            slots: slots(self.key_capacity(), |key| self.position(key)),
+            slots: slots(self.key_capacity(), |key| self.get_index_of(key)),
             key_capacity: self.key_capacity(),
             entries: self
                 .iter()
@@ -84,7 +84,7 @@ where
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             kind: Kind::Set,
-            slots: slots(self.key_capacity(), |key| self.position(key)),
+            slots: slots(self.key_capacity(), |key| self.get_index_of(key)),
             key_capacity: self.key_capacity(),
             entries: self.iter().map(|key| Entry::new(key, None)).collect(),
             capacity: self.capacity(),
@@ -105,7 +105,7 @@ fn slots<K: TryFrom<usize>>(
 impl Entry {
     fn new<K: Key + Display>(key: K, value: Option<String>) -> Self {
         Self {
-            index: key.index(),
+            index: key.slot(),
             key: key.to_string(),
             value,
         }

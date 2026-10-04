@@ -38,7 +38,7 @@ fn assert_consistent<V>(map: &SparseMap<u32, V>) {
     assert_eq!(map.len(), map.keys().len());
     assert_eq!(map.len(), map.values().len());
     for (position, &k) in map.keys().iter().enumerate() {
-        assert_eq!(map.position(k), Some(position));
+        assert_eq!(map.get_index_of(k), Some(position));
         assert!(map.contains_key(k));
     }
 }

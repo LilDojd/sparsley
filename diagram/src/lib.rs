@@ -85,7 +85,7 @@ pub fn render(
 
 #[doc(hidden)]
 pub fn index<K: Key>(key: K) -> usize {
-    key.index()
+    key.slot()
 }
 
 /// Draws both tables, the link between them and the summary, marking changes

@@ -29,7 +29,7 @@ pub struct VacantEntry<'a, K, V> {
 
 impl<'a, K: Key, V> Entry<'a, K, V> {
     pub(super) fn new(map: &'a mut SparseMap<K, V>, key: K) -> Self {
-        let index = key.index();
+        let index = key.slot();
         map.sparse.reserve(index, super::indices(map.dense.keys()));
         let len = map.len();
         let position = map.sparse.probe(index, len);
@@ -104,9 +104,9 @@ impl<'a, K: Key, V> OccupiedEntry<'a, K, V> {
         self.map.keys()[self.position]
     }
 
-    /// Returns the dense position of the entry.
+    /// Returns the dense index of the entry.
     #[must_use]
-    pub fn position(&self) -> usize {
+    pub fn index(&self) -> usize {
         self.position
     }
 
@@ -143,7 +143,7 @@ impl<'a, K: Key, V> OccupiedEntry<'a, K, V> {
     /// Removes the entry, returning the stored key and its value.
     #[inline]
     pub fn remove_entry(self) -> (K, V) {
-        self.map.sparse.remove(self.key().index());
+        self.map.sparse.remove(self.key().slot());
         self.map.swap_remove(self.position)
     }
 }

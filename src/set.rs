@@ -113,11 +113,11 @@ impl<K: Key> SparseSet<K> {
         self.map.contains_key(key)
     }
 
-    /// Returns the dense position of `key`.
+    /// Returns the dense index of `key`.
     #[inline]
     #[must_use]
-    pub fn position(&self, key: K) -> Option<usize> {
-        self.map.position(key)
+    pub fn get_index_of(&self, key: K) -> Option<usize> {
+        self.map.get_index_of(key)
     }
 
     /// Adds `key`, returning `true` if it was absent.
@@ -149,7 +149,7 @@ impl<K: Key> SparseSet<K> {
 
     /// Removes `key`, returning `true` if it was present.
     ///
-    /// The last key moves into the vacated position.
+    /// The last key moves into the gap.
     ///
     /// <!-- diagram: set-remove -->
     /// ```text

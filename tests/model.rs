@@ -186,11 +186,11 @@ fn check_map(map: &SparseMap<u32, u32>, model: &BTreeMap<u32, u32>) {
     for k in probe_keys() {
         assert_eq!(map.get(k), model.get(&k));
         assert_eq!(map.contains_key(k), model.contains_key(&k));
-        let indexed = map.position(k).and_then(|p| map.get_index(p));
+        let indexed = map.get_index_of(k).and_then(|p| map.get_index(p));
         assert_eq!(indexed, model.get(&k).map(|v| (k, v)));
     }
     for (position, (&k, v)) in map.keys().iter().zip(map.values()).enumerate() {
-        assert_eq!(map.position(k), Some(position));
+        assert_eq!(map.get_index_of(k), Some(position));
         assert_eq!(map.get(k), Some(v));
     }
     let snapshot: BTreeMap<u32, u32> = map.iter().map(|(k, &v)| (k, v)).collect();
@@ -248,7 +248,7 @@ fn check_set(set: &SparseSet<u32>, model: &BTreeSet<u32>) {
     assert_eq!(set.len(), model.len());
     for k in probe_keys() {
         assert_eq!(set.contains(k), model.contains(&k));
-        let found = set.position(k).map(|p| set.as_slice()[p]);
+        let found = set.get_index_of(k).map(|p| set.as_slice()[p]);
         assert_eq!(found, model.contains(&k).then_some(k));
     }
     assert_eq!(&set.iter().collect::<BTreeSet<_>>(), model);

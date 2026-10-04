@@ -1,4 +1,5 @@
-//! ASCII memory diagrams of [`SparseMap`] operations.
+//! Memory diagrams of [`SparseMap`](sparsley::SparseMap) and
+//! [`SparseSet`](sparsley::SparseSet) operations.
 //!
 //! [`trace!`] runs a map call and draws every array the map owns afterwards:
 //!
@@ -42,24 +43,20 @@ mod notes;
 mod snapshot;
 mod table;
 
-use std::fmt::{Display, Write};
+use std::fmt::Write;
 
-use sparsley::{Key, SparseMap};
+use sparsley::Key;
 
 use link::Link;
-pub use snapshot::Snapshot;
+pub use snapshot::{Observe, Snapshot};
 use table::Table;
 
 /// The number of sparse slots and dense positions drawn.
 pub const COLUMNS: usize = 16;
 
-/// Draws the arrays of `map`.
-pub fn layout<K, V>(map: &SparseMap<K, V>) -> String
-where
-    K: Key + TryFrom<usize> + Display,
-    V: Display,
-{
-    let snapshot = Snapshot::of(map);
+/// Draws the arrays of a map or set.
+pub fn layout(collection: &impl Observe) -> String {
+    let snapshot = Snapshot::of(collection);
     let mut out = String::new();
     draw(&mut out, &snapshot, &snapshot, None);
     finish(&out)
@@ -113,7 +110,7 @@ fn finish(out: &str) -> String {
         .collect()
 }
 
-/// Runs map calls and draws the state change of each.
+/// Runs map or set calls and draws the state change of each.
 ///
 /// `trace!(map.insert(3, 'a'))` draws one call; `trace!(map; insert(3, 'a'),
 /// remove(7))` draws a sequence, separated by blank lines. Calls whose first

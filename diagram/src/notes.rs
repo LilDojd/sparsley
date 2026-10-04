@@ -113,10 +113,14 @@ fn lookup(out: &mut String, after: &Snapshot, index: usize) {
     let _ = match position {
         Some(position) => {
             let Entry { key, value, .. } = &after.entries[position];
-            writeln!(
+            let _ = write!(
                 out,
-                "  sparse[{index}] = {stored} -> keys[{position}] = {key}, values[{position}] = {value}"
-            )
+                "  sparse[{index}] = {stored} -> keys[{position}] = {key}"
+            );
+            match value {
+                Some(value) => writeln!(out, ", values[{position}] = {value}"),
+                None => writeln!(out),
+            }
         }
         None => writeln!(out, "  sparse[{index}] = {stored} -> no entry"),
     };
@@ -128,11 +132,14 @@ fn replacements(out: &mut String, before: &Snapshot, after: &Snapshot) {
         let Some(old) = before.entries.get(position) else {
             continue;
         };
-        if old.index == new.index && old.value != new.value {
+        let (Some(old_value), Some(new_value)) = (&old.value, &new.value) else {
+            continue;
+        };
+        if old.index == new.index && old_value != new_value {
             let _ = writeln!(
                 out,
-                "  values[{position}]  {} -> {}  key {} replaced",
-                old.value, new.value, new.key
+                "  values[{position}]  {old_value} -> {new_value}  key {} replaced",
+                new.key
             );
         }
     }

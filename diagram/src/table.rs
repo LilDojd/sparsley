@@ -3,7 +3,7 @@ use std::iter;
 
 use crate::COLUMNS;
 use crate::grid::{Line, glyph};
-use crate::snapshot::{Entry, Slot, Snapshot};
+use crate::snapshot::{Entry, Kind, Slot, Snapshot};
 
 /// Fill for unused dense capacity.
 const SHADE: char = '░';
@@ -103,7 +103,7 @@ impl Table {
         }
     }
 
-    /// The drawn dense keys and values, up to capacity.
+    /// The drawn dense keys, and values for a map, up to capacity.
     pub(crate) fn dense(before: &Snapshot, after: &Snapshot) -> Self {
         let row = |label, field: fn(&Entry) -> &str| {
             let cells = |snapshot: &Snapshot| -> Vec<Cell> {
@@ -116,11 +116,14 @@ impl Table {
             };
             Row::diff(label, cells(after), &cells(before))
         };
+        let mut rows = vec![row("keys", |entry| &entry.key)];
+        if after.kind == Kind::Map {
+            rows.push(row("values", |entry| {
+                entry.value.as_deref().unwrap_or_default()
+            }));
+        }
         Self {
-            rows: vec![
-                row("keys", |entry| &entry.key),
-                row("values", |entry| &entry.value),
-            ],
+            rows,
             truncated: after.capacity > COLUMNS,
         }
     }

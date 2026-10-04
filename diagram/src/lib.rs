@@ -34,86 +34,19 @@
 //! changed. The notes list each slot the call rewrote, or the slot a lookup
 //! read. Only the first [`COLUMNS`] slots and positions are drawn.
 
+mod notes;
+mod snapshot;
+mod table;
+
 use std::fmt::{Display, Write};
 
 use sparsley::{Key, SparseMap};
 
+pub use snapshot::Snapshot;
+use table::Table;
+
 /// The number of sparse slots and dense positions drawn.
 pub const COLUMNS: usize = 16;
-
-/// The text of an unused dense cell.
-const UNUSED: &str = "░";
-
-/// The observable state of a map, read through its public API.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Snapshot {
-    /// Dense position of each drawn key index that has a slot.
-    slots: Vec<Option<usize>>,
-    /// Index and rendering of each dense key.
-    keys: Vec<(usize, String)>,
-    values: Vec<String>,
-    capacity: usize,
-    key_capacity: usize,
-}
-
-impl Snapshot {
-    /// Reads the state of `map`.
-    pub fn of<K, V>(map: &SparseMap<K, V>) -> Self
-    where
-        K: Key + TryFrom<usize> + Display,
-        V: Display,
-    {
-        let slots = (0..map.key_capacity().min(COLUMNS))
-            .map(|index| K::try_from(index).ok().and_then(|key| map.position(key)))
-            .collect();
-        Self {
-            slots,
-            keys: map
-                .keys()
-                .iter()
-                .map(|&key| (key.index(), key.to_string()))
-                .collect(),
-            values: map.values().iter().map(ToString::to_string).collect(),
-            capacity: map.capacity(),
-            key_capacity: map.key_capacity(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.keys.len()
-    }
-
-    fn position(&self, index: usize) -> Option<usize> {
-        self.keys.iter().position(|&(i, _)| i == index)
-    }
-
-    fn sparse_cells(&self) -> Vec<String> {
-        self.slots
-            .iter()
-            .map(|&slot| slot.map_or_else(String::new, |_| slot_text(slot)))
-            .collect()
-    }
-
-    fn dense_cells(&self, column: impl Fn(usize) -> String) -> Vec<String> {
-        (0..self.capacity.min(COLUMNS))
-            .map(|position| {
-                if position < self.len() {
-                    column(position)
-                } else {
-                    UNUSED.into()
-                }
-            })
-            .collect()
-    }
-
-    fn key_cells(&self) -> Vec<String> {
-        self.dense_cells(|position| self.keys[position].1.clone())
-    }
-
-    fn value_cells(&self) -> Vec<String> {
-        self.dense_cells(|position| self.values[position].clone())
-    }
-}
 
 /// Draws the arrays of `map`.
 pub fn layout<K, V>(map: &SparseMap<K, V>) -> String
@@ -124,7 +57,6 @@ where
     let snapshot = Snapshot::of(map);
     let mut out = String::new();
     draw(&mut out, &snapshot, &snapshot);
-    summary(&mut out, &snapshot, &snapshot);
     finish(&out)
 }
 
@@ -145,8 +77,7 @@ pub fn render(
     }
     out.push('\n');
     draw(&mut out, before, after);
-    summary(&mut out, before, after);
-    notes(&mut out, before, after, focus);
+    notes::notes(&mut out, before, after, focus);
     finish(&out)
 }
 
@@ -155,162 +86,17 @@ pub fn index<K: Key>(key: K) -> usize {
     key.index()
 }
 
+/// Draws both tables and the summary, marking changes from `before`.
 fn draw(out: &mut String, before: &Snapshot, after: &Snapshot) {
-    let sparse = [("sparse", after.sparse_cells(), before.sparse_cells())];
-    let dense = [
-        ("keys", after.key_cells(), before.key_cells()),
-        ("values", after.value_cells(), before.value_cells()),
-    ];
-    let width = sparse
-        .iter()
-        .chain(&dense)
-        .flat_map(|(_, cells, _)| cells)
-        .map(|cell| cell.chars().count())
-        .chain([after
-            .slots
-            .len()
-            .max(after.capacity.min(COLUMNS))
-            .to_string()
-            .len()])
-        .max()
-        .unwrap_or(0)
-        .max(2);
-    table(out, &sparse, width, after.key_capacity > after.slots.len());
-    table(out, &dense, width, after.capacity > COLUMNS);
+    let sparse = Table::sparse(before, after);
+    let dense = Table::dense(before, after);
+    let width = sparse.width().max(dense.width());
+    sparse.draw(out, width);
+    dense.draw(out, width);
+    notes::summary(out, before, after);
 }
 
-/// Writes rows of cells as a table under a header of positions, marking cells
-/// that differ from the old row with `*`. `more` marks columns left out.
-fn table(out: &mut String, rows: &[(&str, Vec<String>, Vec<String>)], width: usize, more: bool) {
-    let columns = rows[0].1.len();
-    if columns == 0 {
-        for (label, ..) in rows {
-            let _ = writeln!(out, "  {label:<8}(none)");
-        }
-        return;
-    }
-    let border = |left, middle, right| {
-        let line = vec!["─".repeat(width + 1); columns].join(middle);
-        format!("          {left}{line}{right}\n")
-    };
-    out.push_str("           ");
-    for column in 0..columns {
-        let _ = write!(out, "{column:>width$}  ");
-    }
-    out.push('\n');
-    out.push_str(&border("┌", "┬", "┐"));
-    for (i, (label, cells, old)) in rows.iter().enumerate() {
-        if i > 0 {
-            out.push_str(&border("├", "┼", "┤"));
-        }
-        let _ = write!(out, "  {label:<8}│");
-        for (column, cell) in cells.iter().enumerate() {
-            let unused = cell == UNUSED;
-            let mark = match (old.get(column) == Some(cell), unused) {
-                (false, _) => "*",
-                (true, true) => UNUSED,
-                (true, false) => " ",
-            };
-            let text = if unused {
-                UNUSED.repeat(width)
-            } else {
-                cell.clone()
-            };
-            let _ = write!(out, "{text:>width$}{mark}│");
-        }
-        if more {
-            out.push_str(" …");
-        }
-        out.push('\n');
-    }
-    out.push_str(&border("└", "┴", "┘"));
-}
-
-fn summary(out: &mut String, before: &Snapshot, after: &Snapshot) {
-    let _ = writeln!(
-        out,
-        "\n  len {}, capacity {}, key_capacity {}",
-        change(before.len(), after.len()),
-        change(before.capacity, after.capacity),
-        change(before.key_capacity, after.key_capacity),
-    );
-}
-
-/// Writes one line per slot or value the call changed, plus the lookup of an
-/// unchanged `focus` slot.
-fn notes(out: &mut String, before: &Snapshot, after: &Snapshot, focus: Option<usize>) {
-    let mut lines = Vec::new();
-    for (from, (index, key)) in before.keys.iter().enumerate() {
-        if after.position(*index).is_none() {
-            let what = format!("key {key} removed from position {from}");
-            lines.push((*index, Some(from), None, what));
-        }
-    }
-    for (to, (index, key)) in after.keys.iter().enumerate() {
-        match before.position(*index) {
-            Some(from) if from != to => {
-                let what = format!("key {key} moved from position {from} to {to}");
-                lines.push((*index, Some(from), Some(to), what));
-            }
-            Some(_) => {}
-            None => lines.push((
-                *index,
-                None,
-                Some(to),
-                format!("key {key} pushed at position {to}"),
-            )),
-        }
-    }
-    let width = lines
-        .iter()
-        .map(|&(index, ..)| format!("sparse[{index}]").len())
-        .max()
-        .unwrap_or(0);
-    for (index, from, to, what) in &lines {
-        let target = format!("sparse[{index}]");
-        let _ = writeln!(
-            out,
-            "  {target:<width$}  {} -> {}  {what}",
-            slot_text(*from),
-            slot_text(*to),
-        );
-    }
-    if let Some(index) = focus.filter(|&index| lines.iter().all(|line| line.0 != index)) {
-        let slot = slot_text(after.position(index));
-        let _ = match after.position(index) {
-            Some(position) => writeln!(
-                out,
-                "  sparse[{index}] = {slot} -> keys[{position}] = {}, values[{position}] = {}",
-                after.keys[position].1, after.values[position],
-            ),
-            None => writeln!(out, "  sparse[{index}] = {slot} -> no entry"),
-        };
-    }
-    for (position, (index, key)) in after.keys.iter().enumerate() {
-        if let Some(old) = before.position(*index).filter(|&from| from == position) {
-            let (old, new) = (&before.values[old], &after.values[position]);
-            if old != new {
-                let _ = writeln!(
-                    out,
-                    "  values[{position}]  {old} -> {new}  key {key} replaced"
-                );
-            }
-        }
-    }
-}
-
-fn slot_text(position: Option<usize>) -> String {
-    position.map_or_else(|| "0".into(), |position| (position + 1).to_string())
-}
-
-fn change(before: usize, after: usize) -> String {
-    if before == after {
-        after.to_string()
-    } else {
-        format!("{before} -> {after}")
-    }
-}
-
+/// Strips trailing spaces from every line.
 fn finish(out: &str) -> String {
     out.lines()
         .map(|line| line.trim_end().to_owned() + "\n")
@@ -325,28 +111,12 @@ fn finish(out: &str) -> String {
 /// `remove`, `remove_entry`) also draw their slot lookup. Returns a `String`.
 #[macro_export]
 macro_rules! trace {
-    (@run $map:ident . $method:ident $args:tt => $call:expr, $focus:expr) => {{
-        let before = $crate::Snapshot::of(&$map);
-        let result = ::std::format!("{:?}", $call);
-        $crate::render(
-            ::std::concat!(::std::stringify!($map), ".", ::std::stringify!($method), ::std::stringify!($args)),
-            &result,
-            &before,
-            &$crate::Snapshot::of(&$map),
-            $focus,
-        )
-    }};
-    (@keyed $map:ident . $method:ident ($key:expr $(, $arg:expr)* $(,)?)) => {{
-        let key = $key;
-        let result = $crate::trace!(
-            @run $map . $method ($key $(, $arg)*) => $map.$method(key $(, $arg)*),
-            ::std::option::Option::Some($crate::index(key))
-        );
-        result
-    }};
+    // A sequence of calls on one map.
     ($map:ident; $($method:ident $args:tt),+ $(,)?) => {
         [$($crate::trace!($map . $method $args)),+].join("\n")
     };
+
+    // Calls whose first argument is a key, so its lookup can be drawn.
     ($map:ident . get $args:tt) => { $crate::trace!(@keyed $map . get $args) };
     ($map:ident . get_mut $args:tt) => { $crate::trace!(@keyed $map . get_mut $args) };
     ($map:ident . position $args:tt) => { $crate::trace!(@keyed $map . position $args) };
@@ -354,7 +124,30 @@ macro_rules! trace {
     ($map:ident . insert $args:tt) => { $crate::trace!(@keyed $map . insert $args) };
     ($map:ident . remove $args:tt) => { $crate::trace!(@keyed $map . remove $args) };
     ($map:ident . remove_entry $args:tt) => { $crate::trace!(@keyed $map . remove_entry $args) };
+
+    // Any other call.
     ($map:ident . $method:ident ($($arg:expr),* $(,)?)) => {
-        $crate::trace!(@run $map . $method ($($arg),*) => $map.$method($($arg),*), ::std::option::Option::None)
+        $crate::trace!(@run $map . $method ($($arg),*), ::std::option::Option::None)
     };
+
+    // Evaluates the key once, then runs the call with its index as focus.
+    (@keyed $map:ident . $method:ident ($key:expr $(, $arg:expr)* $(,)?)) => {{
+        let key = $key;
+        let focus = ::std::option::Option::Some($crate::index(key));
+        $crate::trace!(@draw $map . $method ($key $(, $arg)*) => $map.$method(key $(, $arg)*), focus)
+    }};
+
+    (@run $map:ident . $method:ident ($($arg:expr),*), $focus:expr) => {
+        $crate::trace!(@draw $map . $method ($($arg),*) => $map.$method($($arg),*), $focus)
+    };
+
+    // Snapshots around `$call`; `$args` is the argument text to show.
+    (@draw $map:ident . $method:ident $args:tt => $call:expr, $focus:expr) => {{
+        let before = $crate::Snapshot::of(&$map);
+        let result = ::std::format!("{:?}", $call);
+        let call = ::std::concat!(
+            ::std::stringify!($map), ".", ::std::stringify!($method), ::std::stringify!($args)
+        );
+        $crate::render(call, &result, &before, &$crate::Snapshot::of(&$map), $focus)
+    }};
 }

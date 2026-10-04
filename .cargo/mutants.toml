@@ -1,0 +1,27 @@
+# cargo-mutants: https://mutants.rs
+examine_globs = ["src/**/*.rs"]
+test_package = ["sparsley"]
+all_features = true
+
+# Equivalent mutants: each changes only performance or which of two correct
+# strategies runs.
+exclude_re = [
+  # Array order inside the dense allocation.
+  "keys_first",
+  # Insertion fast path;
+  "replace Sparse::flagged -> .* with None",
+  "replace Sparse::advance with \\(\\)",
+  "replace << with >> in Sparse::advance",
+  # Sweep versus per-key updates.
+  "is_crowded",
+  # Realloc versus alloc and copy.
+  "replace > with (==|>=) in Dense<K, V>::reallocate",
+  # Reallocation to the same capacity.
+  "replace > with >= in Dense<K, V>::(reserve|shrink_to_fit)",
+  # Which set is scanned.
+  "replace <= with > in SparseSet<K>::is_disjoint",
+  # Stale slots need a broken `Key` impl, and dense reads are checked.
+  "replace < with <= in Slot::get",
+  # Clamp only matters for size hints near `MAX_LEN`.
+  "replace - with \\+ in <impl Extend<\\(K, V\\)> for SparseMap<K, V>>::extend",
+]

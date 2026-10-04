@@ -24,6 +24,7 @@ in
 
   packages = [
     pkgs.cargo-hack
+    pkgs.cargo-mutants
     pkgs.cargo-nextest
     pkgs.cargo-show-asm
     pkgs.perf

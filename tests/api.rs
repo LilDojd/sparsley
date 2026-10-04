@@ -148,6 +148,76 @@ fn set_swap_indices_out_of_bounds_panics() {
 }
 
 #[test]
+fn reserve_guarantees_capacity() {
+    for additional in 0..16 {
+        let mut map = sample();
+        map.reserve(additional);
+        assert!(map.capacity() >= map.len() + additional);
+
+        let mut set = SparseSet::from([3u32, 1, 7, 5]);
+        set.reserve(additional);
+        assert!(set.capacity() >= set.len() + additional);
+    }
+
+    let mut set = SparseSet::<u32>::new();
+    set.reserve_keys(500);
+    assert!(set.key_capacity() >= 500);
+}
+
+#[test]
+fn entry_finds_keys_in_distant_chunks() {
+    let mut map = SparseMap::new();
+    map.reserve_keys(8192);
+    for key in [0u32, 1100, 5000] {
+        map.insert(key, key);
+        assert!(matches!(map.entry(key), Entry::Occupied(_)), "{key}");
+    }
+}
+
+#[test]
+fn slices_and_dense_indices() {
+    let mut map = sample();
+    let (keys, values) = map.as_slices();
+    assert_eq!(keys, [3, 1, 7, 5]);
+    assert_eq!(values, ["c", "a", "g", "e"]);
+
+    map.as_mut_slices().1[1].push('!');
+    let (key, value) = map.get_index_mut(2).unwrap();
+    assert_eq!(key, 7);
+    value.push('?');
+    assert!(map.get_index_mut(4).is_none());
+    assert_eq!(map.values(), ["c", "a!", "g?", "e"]);
+}
+
+#[test]
+fn zero_sized_keys_and_values() {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Unit;
+
+    impl Key for Unit {
+        fn slot(self) -> usize {
+            0
+        }
+    }
+
+    let max = u32::MAX as usize;
+    let mut map = SparseMap::new();
+    assert_eq!(map.capacity(), max);
+    assert_eq!(map.insert(Unit, ()), None);
+    assert_eq!(map.insert(Unit, ()), Some(()));
+    map.shrink_to_fit();
+    assert_eq!(map.capacity(), max);
+    assert_eq!(map.remove_entry(Unit), Some((Unit, ())));
+}
+
+#[test]
+fn set_clones_and_iterates_by_reference() {
+    let set = SparseSet::from([9u32, 4, 6]);
+    assert_eq!(set.clone().as_slice(), [9, 4, 6]);
+    assert_eq!((&set).into_iter().collect::<Vec<_>>(), [9, 4, 6]);
+}
+
+#[test]
 fn equality_ignores_dense_order() {
     let forward: SparseMap<u32, char> = [(1, 'a'), (2, 'b'), (3, 'c')].into();
     let mut backward: SparseMap<u32, char> = [(3, 'c'), (2, 'b'), (1, 'a')].into();
@@ -170,6 +240,15 @@ fn debug_formatting() {
     let map: SparseMap<u32, &str> = [(2, "b"), (1, "a")].into();
     assert_eq!(format!("{map:?}"), r#"{2: "b", 1: "a"}"#);
     assert_eq!(format!("{:?}", SparseSet::from([4u8, 2])), "{4, 2}");
+
+    let mut map = map;
+    assert_eq!(format!("{:?}", map.iter()), r#"[(2, "b"), (1, "a")]"#);
+    assert_eq!(format!("{:?}", map.iter_mut()), "IterMut { .. }");
+    assert_eq!(
+        format!("{:?}", map.entry(2)),
+        r#"Occupied(OccupiedEntry { key: 2, value: "b" })"#
+    );
+    assert_eq!(format!("{:?}", map.entry(9)), "Vacant(VacantEntry(9))");
 }
 
 #[test]

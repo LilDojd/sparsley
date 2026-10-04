@@ -68,3 +68,11 @@ fn invalid_json_is_rejected() {
         );
     }
 }
+
+#[test]
+fn errors_name_the_expected_input() {
+    let err = serde_json::from_str::<SparseMap<u8, char>>("[]").unwrap_err();
+    assert!(err.to_string().contains("expected a map"), "{err}");
+    let err = serde_json::from_str::<SparseSet<u8>>("{}").unwrap_err();
+    assert!(err.to_string().contains("expected a sequence"), "{err}");
+}

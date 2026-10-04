@@ -76,12 +76,15 @@
 //! entries.
 
 #![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate alloc;
 
 mod dense;
 mod key;
 pub mod map;
+#[cfg(feature = "serde")]
+mod serde;
 pub mod set;
 mod sparse;
 

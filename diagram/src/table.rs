@@ -1,8 +1,8 @@
 use std::fmt::Write;
 use std::iter;
 
-use crate::COLUMNS;
 use crate::grid::{Line, glyph};
+use crate::render::COLUMNS;
 use crate::snapshot::{Entry, Kind, Slot, Snapshot};
 
 /// Fill for unused dense capacity.

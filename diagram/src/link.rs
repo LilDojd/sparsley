@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Write;
 use std::iter;
 
-use crate::COLUMNS;
+use crate::render::COLUMNS;
 use crate::snapshot::Snapshot;
 use crate::table::anchor;
 

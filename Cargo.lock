@@ -876,10 +876,7 @@ dependencies = [
 
 [[package]]
 name = "sparsley-diagram"
-version = "0.0.0"
-dependencies = [
- "sparsley",
-]
+version = "0.1.0"
 
 [[package]]
 name = "spin"

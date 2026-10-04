@@ -1,12 +1,16 @@
 [package]
 name = "sparsley-diagram"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
-publish = false
-description = "ASCII memory diagrams of sparsley operations"
+rust-version = "1.92"
+authors = ["LilDojd <yawner@protonmail.com>"]
+description = "Proc macros drawing memory diagrams of sparsley operations for rustdoc"
+license = "MIT OR Apache-2.0"
+keywords = ["sparse-set", "documentation", "diagram"]
+categories = ["development-tools::procedural-macro-helpers"]
 
-[dependencies]
-sparsley = { path = ".." }
+[lib]
+proc-macro = true
 
 [lints]
 workspace = true

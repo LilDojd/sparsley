@@ -13,3 +13,7 @@ devenv.local.yaml
 
 # cargo-mutants
 mutants.out*/
+
+# insta
+*.pending-snap
+*.snap.new

@@ -98,6 +98,13 @@ impl<K: Copy> SparseSet<K> {
     pub fn iter(&self) -> Iter<'_, K> {
         self.as_slice().iter().copied()
     }
+
+    /// Returns the key at dense `index`.
+    #[inline]
+    #[must_use]
+    pub fn get_index(&self, index: usize) -> Option<K> {
+        self.as_slice().get(index).copied()
+    }
 }
 
 impl<K: Key> SparseSet<K> {
@@ -171,6 +178,20 @@ impl<K: Key> SparseSet<K> {
     #[inline]
     pub fn remove(&mut self, key: K) -> bool {
         self.map.remove(key).is_some()
+    }
+
+    /// Removes the key at dense `index`, moving the last key into the gap.
+    pub fn swap_remove_index(&mut self, index: usize) -> Option<K> {
+        self.map.swap_remove_index(index).map(|(key, ())| key)
+    }
+
+    /// Swaps the keys at dense indices `a` and `b`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either index is out of bounds.
+    pub fn swap_indices(&mut self, a: usize, b: usize) {
+        self.map.swap_indices(a, b);
     }
 
     /// Removes every key, keeping allocations.
@@ -247,13 +268,49 @@ impl<K: Key> SparseSet<K> {
     where
         K: Ord,
     {
-        self.map.sort_unstable_by(|(a, ()), (b, ())| a.cmp(&b));
+        self.map.sort_unstable_keys();
     }
 
     /// Returns `true` if every key of `self` is in `other`.
     #[must_use]
     pub fn is_subset(&self, other: &Self) -> bool {
         self.len() <= other.len() && self.iter().all(|key| other.contains(key))
+    }
+
+    /// Returns `true` if every key of `other` is in `self`.
+    #[must_use]
+    pub fn is_superset(&self, other: &Self) -> bool {
+        other.is_subset(self)
+    }
+
+    /// Iterates over the keys in both `self` and `other`, walking the smaller
+    /// set in dense order.
+    ///
+    /// ```
+    /// # use sparsley::SparseSet;
+    /// let a = SparseSet::from([1_u32, 2, 3]);
+    /// let b = SparseSet::from([2_u32, 3, 4, 5]);
+    /// assert_eq!(a.intersection(&b).collect::<Vec<_>>(), [2, 3]);
+    /// ```
+    pub fn intersection<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = K> + 'a {
+        let (small, large) = if self.len() <= other.len() {
+            (self, other)
+        } else {
+            (other, self)
+        };
+        small.iter().filter(move |&key| large.contains(key))
+    }
+
+    /// Iterates over the keys in `self` but not in `other`, in dense order.
+    ///
+    /// ```
+    /// # use sparsley::SparseSet;
+    /// let a = SparseSet::from([1_u32, 2, 3]);
+    /// let b = SparseSet::from([2_u32, 4]);
+    /// assert_eq!(a.difference(&b).collect::<Vec<_>>(), [1, 3]);
+    /// ```
+    pub fn difference<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = K> + 'a {
+        self.iter().filter(move |&key| !other.contains(key))
     }
 
     /// Returns `true` if `self` and `other` share no keys.

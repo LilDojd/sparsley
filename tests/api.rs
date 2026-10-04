@@ -249,3 +249,43 @@ fn key_types() {
     roundtrip([0u64, 300, 7]);
     roundtrip([0usize, 300, 7]);
 }
+
+#[test]
+fn key_value_and_key_order() {
+    let mut map = sample();
+    assert_eq!(map.get_key_value(7), Some((7, &"g".to_owned())));
+    assert_eq!(map.get_key_value(2), None);
+    map.sort_unstable_keys();
+    assert_eq!(map.keys(), [1, 3, 5, 7]);
+    assert_eq!(map[5], "e");
+}
+
+#[test]
+fn set_positions() {
+    let mut set = SparseSet::from([4_u32, 8, 15, 16]);
+    assert_eq!(set.get_index_of(15), Some(2));
+    assert_eq!(set.get_index(2), Some(15));
+    assert_eq!(set.swap_remove_index(0), Some(4));
+    assert_eq!(set.as_slice(), [16, 8, 15]);
+    assert!(!set.contains(4));
+    set.swap_indices(0, 2);
+    assert_eq!(set.as_slice(), [15, 8, 16]);
+    assert_eq!(set.get_index_of(16), Some(2));
+    assert_eq!(set.swap_remove_index(3), None);
+}
+
+#[test]
+fn set_algebra() {
+    let a = SparseSet::from([1_u32, 2, 3, 4]);
+    let b = SparseSet::from([3_u32, 4, 5]);
+    let sorted = |iter: &mut dyn Iterator<Item = u32>| {
+        let mut keys: Vec<u32> = iter.collect();
+        keys.sort_unstable();
+        keys
+    };
+    assert_eq!(sorted(&mut a.intersection(&b)), [3, 4]);
+    assert_eq!(sorted(&mut b.intersection(&a)), [3, 4]);
+    assert_eq!(sorted(&mut a.difference(&b)), [1, 2]);
+    assert!(a.is_superset(&SparseSet::from([2_u32, 4])));
+    assert!(!a.is_superset(&b));
+}

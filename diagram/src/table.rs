@@ -2,6 +2,7 @@ use std::fmt::Write;
 use std::iter;
 
 use crate::COLUMNS;
+use crate::grid::{Line, glyph};
 use crate::snapshot::{Entry, Slot, Snapshot};
 
 /// Fill for unused dense capacity.
@@ -26,11 +27,18 @@ struct Row {
     cells: Vec<(Cell, bool)>,
 }
 
-/// Rows sharing a header of column indices.
+/// Rows sharing a header of column indices. Borders around changed cells are
+/// heavy.
 pub(crate) struct Table {
     rows: Vec<Row>,
     /// Whether columns past [`COLUMNS`] are left out.
     truncated: bool,
+}
+
+/// Returns the text column of the last character of cell `column`, where
+/// links attach.
+pub(crate) fn anchor(column: usize, width: usize) -> usize {
+    LABEL + 1 + (width + 2) * column + width - 1
 }
 
 impl Cell {
@@ -41,19 +49,17 @@ impl Cell {
         }
     }
 
-    /// Writes the cell right-aligned in `width`, then its change mark.
-    fn draw(&self, out: &mut String, width: usize, changed: bool) {
-        let text = match self {
-            Self::Empty => String::new(),
-            Self::Unused => iter::repeat_n(SHADE, width).collect(),
-            Self::Text(text) => text.clone(),
+    /// Writes the cell right-aligned in `width`, plus one space of padding.
+    fn draw(&self, out: &mut String, width: usize) {
+        let _ = match self {
+            Self::Empty => write!(out, "{:width$} ", ""),
+            Self::Unused => write!(
+                out,
+                "{}",
+                iter::repeat_n(SHADE, width + 1).collect::<String>()
+            ),
+            Self::Text(text) => write!(out, "{text:>width$} "),
         };
-        let mark = match self {
-            _ if changed => '*',
-            Self::Unused => SHADE,
-            _ => ' ',
-        };
-        let _ = write!(out, "{text:>width$}{mark}│");
     }
 }
 
@@ -78,17 +84,6 @@ impl Row {
             })
             .collect();
         Self { label, cells }
-    }
-
-    fn draw(&self, out: &mut String, width: usize, truncated: bool) {
-        let _ = write!(out, "  {:<8}│", self.label);
-        for (cell, changed) in &self.cells {
-            cell.draw(out, width, *changed);
-        }
-        if truncated {
-            out.push_str(" …");
-        }
-        out.push('\n');
     }
 }
 
@@ -142,7 +137,8 @@ impl Table {
         widest.max(index).max(2)
     }
 
-    pub(crate) fn draw(&self, out: &mut String, width: usize) {
+    /// Draws the table, with `▼` in place of the index of an `arrow` column.
+    pub(crate) fn draw(&self, out: &mut String, width: usize, arrow: Option<usize>) {
         let columns = self.columns();
         if columns == 0 {
             for row in &self.rows {
@@ -152,20 +148,93 @@ impl Table {
         }
         let _ = write!(out, "{:LABEL$} ", "");
         for column in 0..columns {
-            let _ = write!(out, "{column:>width$}  ");
+            let index = if arrow == Some(column) {
+                "▼".to_owned()
+            } else {
+                column.to_string()
+            };
+            let _ = write!(out, "{index:>width$}  ");
         }
         out.push('\n');
-        let border = |out: &mut String, [left, middle, right]: [&str; 3]| {
-            let line = vec!["─".repeat(width + 1); columns].join(middle);
-            let _ = writeln!(out, "{:LABEL$}{left}{line}{right}", "");
-        };
-        border(out, ["┌", "┬", "┐"]);
-        for (i, row) in self.rows.iter().enumerate() {
-            if i > 0 {
-                border(out, ["├", "┼", "┤"]);
+        for border in 0..=self.rows.len() {
+            self.draw_border(out, width, border);
+            if let Some(row) = self.rows.get(border) {
+                self.draw_row(out, width, border, row);
             }
-            row.draw(out, width, self.truncated);
         }
-        border(out, ["└", "┴", "┘"]);
+    }
+
+    /// Draws horizontal border `border`, which lies above row `border`.
+    fn draw_border(&self, out: &mut String, width: usize, border: usize) {
+        let _ = write!(out, "{:LABEL$}", "");
+        for boundary in 0..=self.columns() {
+            out.push(self.junction(border, boundary));
+            if boundary < self.columns() {
+                let line = self.horizontal(border, boundary);
+                let segment = glyph(Line::Blank, Line::Blank, line, line);
+                out.extend(iter::repeat_n(segment, width + 1));
+            }
+        }
+        out.push('\n');
+    }
+
+    fn draw_row(&self, out: &mut String, width: usize, index: usize, row: &Row) {
+        let _ = write!(out, "  {:<8}", row.label);
+        for boundary in 0..=self.columns() {
+            let line = self.vertical(index, boundary);
+            out.push(glyph(line, line, Line::Blank, Line::Blank));
+            if let Some((cell, _)) = row.cells.get(boundary) {
+                cell.draw(out, width);
+            }
+        }
+        if self.truncated {
+            out.push_str(" …");
+        }
+        out.push('\n');
+    }
+
+    fn changed(&self, row: usize, column: usize) -> bool {
+        self.rows
+            .get(row)
+            .and_then(|row| row.cells.get(column))
+            .is_some_and(|&(_, changed)| changed)
+    }
+
+    /// The segment of horizontal border `border` over `column`.
+    fn horizontal(&self, border: usize, column: usize) -> Line {
+        let above = border
+            .checked_sub(1)
+            .is_some_and(|row| self.changed(row, column));
+        Line::weight(above || self.changed(border, column))
+    }
+
+    /// The segment of vertical boundary `boundary` beside `row`.
+    fn vertical(&self, row: usize, boundary: usize) -> Line {
+        let left = boundary
+            .checked_sub(1)
+            .is_some_and(|column| self.changed(row, column));
+        Line::weight(left || self.changed(row, boundary))
+    }
+
+    fn junction(&self, border: usize, boundary: usize) -> char {
+        let up = match border.checked_sub(1) {
+            Some(row) => self.vertical(row, boundary),
+            None => Line::Blank,
+        };
+        let down = if border < self.rows.len() {
+            self.vertical(border, boundary)
+        } else {
+            Line::Blank
+        };
+        let left = match boundary.checked_sub(1) {
+            Some(column) => self.horizontal(border, column),
+            None => Line::Blank,
+        };
+        let right = if boundary < self.columns() {
+            self.horizontal(border, boundary)
+        } else {
+            Line::Blank
+        };
+        glyph(up, down, left, right)
     }
 }

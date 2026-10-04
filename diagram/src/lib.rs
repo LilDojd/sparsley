@@ -14,15 +14,16 @@
 //! ```text
 //! map.remove(3) -> Some('a')
 //!             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-//!           ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
-//!   sparse  │   │ 1*│   │  *│   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
-//!           └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
-//!             0   1   2
-//!           ┌───┬───┬───┐
-//!   keys    │ 1*│ 7 │░░*│
-//!           ├───┼───┼───┤
-//!   values  │ c*│ b │░░*│
-//!           └───┴───┴───┘
+//!           ┌───┲━━━┱───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+//!   sparse  │   ┃ 1 ┃   ┃   ┃   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
+//!           └───┺━━━┹───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+//!             ╭───╯
+//!             ▼   1   2
+//!           ┏━━━┱───┲━━━┓
+//!   keys    ┃ 1 ┃ 7 ┃░░░┃
+//!           ┣━━━╉───╊━━━┫
+//!   values  ┃ c ┃ b ┃░░░┃
+//!           ┗━━━┹───┺━━━┛
 //!
 //!   len 3 -> 2, capacity 3, key_capacity 64
 //!   sparse[3]  1 -> 0  key 3 removed from position 0
@@ -30,10 +31,13 @@
 //! ```
 //!
 //! Sparse slots store `position + 1`; an empty slot is zero and drawn blank.
-//! Shaded cells are unused dense capacity, and `*` marks cells the call
-//! changed. The notes list each slot the call rewrote, or the slot a lookup
-//! read. Only the first [`COLUMNS`] slots and positions are drawn.
+//! Shaded cells are unused dense capacity, and heavy borders frame cells the
+//! call changed. The line between the tables links the looked-up or moved
+//! key's slot to its position. The notes list each slot the call rewrote.
+//! Only the first [`COLUMNS`] slots and positions are drawn.
 
+mod grid;
+mod link;
 mod notes;
 mod snapshot;
 mod table;
@@ -42,6 +46,7 @@ use std::fmt::{Display, Write};
 
 use sparsley::{Key, SparseMap};
 
+use link::Link;
 pub use snapshot::Snapshot;
 use table::Table;
 
@@ -56,7 +61,7 @@ where
 {
     let snapshot = Snapshot::of(map);
     let mut out = String::new();
-    draw(&mut out, &snapshot, &snapshot);
+    draw(&mut out, &snapshot, &snapshot, None);
     finish(&out)
 }
 
@@ -76,7 +81,7 @@ pub fn render(
         let _ = write!(out, " -> {result}");
     }
     out.push('\n');
-    draw(&mut out, before, after);
+    draw(&mut out, before, after, focus);
     notes::notes(&mut out, before, after, focus);
     finish(&out)
 }
@@ -86,13 +91,18 @@ pub fn index<K: Key>(key: K) -> usize {
     key.index()
 }
 
-/// Draws both tables and the summary, marking changes from `before`.
-fn draw(out: &mut String, before: &Snapshot, after: &Snapshot) {
+/// Draws both tables, the link between them and the summary, marking changes
+/// from `before`.
+fn draw(out: &mut String, before: &Snapshot, after: &Snapshot, focus: Option<usize>) {
     let sparse = Table::sparse(before, after);
     let dense = Table::dense(before, after);
     let width = sparse.width().max(dense.width());
-    sparse.draw(out, width);
-    dense.draw(out, width);
+    let link = Link::find(before, after, focus);
+    sparse.draw(out, width, None);
+    if let Some(link) = &link {
+        link.draw(out, width);
+    }
+    dense.draw(out, width, link.map(|link| link.position));
     notes::summary(out, before, after);
 }
 

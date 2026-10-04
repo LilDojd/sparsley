@@ -6,6 +6,9 @@ rust-version = "1.92"
 authors = ["LilDojd <yawner@protonmail.com>"]
 description = "Sparse set with packed, contiguous values and lazily zeroed sparse storage"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/LilDojd/sparsley"
+readme = "README.md"
+include = ["/src", "/README.md", "/CHANGELOG.md", "/LICENSE-*"]
 keywords = ["sparse-set", "ecs", "map", "collection", "no-std"]
 categories = ["data-structures", "game-development", "no-std"]
 

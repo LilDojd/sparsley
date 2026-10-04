@@ -6,6 +6,8 @@ rust-version = "1.92"
 authors = ["LilDojd <yawner@protonmail.com>"]
 description = "Proc macros drawing memory diagrams of sparsley operations for rustdoc"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/LilDojd/sparsley"
+readme = "README.md"
 keywords = ["sparse-set", "documentation", "diagram"]
 categories = ["development-tools::procedural-macro-helpers"]
 

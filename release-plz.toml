@@ -15,12 +15,10 @@ release = true
 changelog_path = "CHANGELOG.md"
 git_tag_name = "v{{ version }}"
 
-# To publish the diagram proc-macro once `sparsley` depends on it, drop
-# `publish = false` from diagram/Cargo.toml and set `release = true` here.
-# release-plz then releases it before `sparsley`.
+# `sparsley` depends on the diagram proc macro, so it is released first.
 [[package]]
 name = "sparsley-diagram"
-release = false
+release = true
 changelog_path = "diagram/CHANGELOG.md"
 
 [changelog]

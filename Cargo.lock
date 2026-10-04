@@ -861,6 +861,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "sparsley-diagram",
 ]
 
 [[package]]

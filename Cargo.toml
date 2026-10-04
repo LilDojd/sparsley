@@ -28,6 +28,7 @@ must_use_candidate = "allow"
 serde = ["dep:serde"]
 
 [dependencies]
+sparsley-diagram = { path = "diagram", version = "0.1.0" }
 serde = { version = "1.0.219", default-features = false, optional = true }
 
 [dev-dependencies]

@@ -13,8 +13,8 @@ pub(crate) const MAX_LEN: usize = u32::MAX as usize;
 ///
 /// * `len <= cap <= MAX_LEN`.
 /// * `keys[..len]` and `values[..len]` are initialized.
-/// * If `layout(cap)` is non-empty, `keys` points to an allocation of that
-///   layout and `values` to its value array; otherwise both are dangling.
+/// * If `Layouts::new(cap)` is non-empty, `keys` and `values` point into one
+///   allocation of that layout; otherwise both are dangling.
 pub(crate) struct Dense<K, V> {
     keys: NonNull<K>,
     values: NonNull<V>,
@@ -161,7 +161,7 @@ impl<K, V> Dense<K, V> {
     pub(crate) fn clear(&mut self) {
         let len = mem::replace(&mut self.len, 0);
         // SAFETY: the prefixes were initialized and are no longer reachable.
-        unsafe { self.drop_range(0, len) };
+        unsafe { drop_entries(self.keys, self.values, 0, len) };
     }
 
     /// Sets the length to zero and returns the entries for reading out.
@@ -173,14 +173,6 @@ impl<K, V> Dense<K, V> {
             start: 0,
             end,
         }
-    }
-
-    /// # Safety
-    ///
-    /// `start..end` must be initialized and never read again.
-    unsafe fn drop_range(&mut self, start: usize, end: usize) {
-        // SAFETY: guaranteed by the caller.
-        unsafe { drop_entries(self.keys, self.values, start, end) };
     }
 
     /// Ensures room for `additional` more entries.
@@ -227,7 +219,7 @@ impl<K, V> Dense<K, V> {
             unsafe {
                 let base = NonNull::new(realloc(self.base(), old.layout, new.layout.size()))
                     .unwrap_or_else(|| handle_alloc_error(new.layout));
-                let (from, to, bytes) = if KeysFirst::<K, V>::VALUE {
+                let (from, to, bytes) = if keys_first::<K, V>() {
                     (old.values, new.values, self.len * mem::size_of::<V>())
                 } else {
                     (old.keys, new.keys, self.len * mem::size_of::<K>())
@@ -258,7 +250,7 @@ impl<K, V> Dense<K, V> {
 
     /// The start of the allocation: the array laid out first.
     fn base(&self) -> *mut u8 {
-        if KeysFirst::<K, V>::VALUE {
+        if keys_first::<K, V>() {
             self.keys.as_ptr().cast()
         } else {
             self.values.as_ptr().cast()
@@ -404,10 +396,8 @@ impl<T> Drop for DropSlice<T> {
 
 /// Whether the keys are laid out before the values. The larger array comes
 /// first, so growing in place moves only the smaller one.
-struct KeysFirst<K, V>(PhantomData<(K, V)>);
-
-impl<K, V> KeysFirst<K, V> {
-    const VALUE: bool = mem::size_of::<K>() > mem::size_of::<V>();
+const fn keys_first<K, V>() -> bool {
+    mem::size_of::<K>() > mem::size_of::<V>()
 }
 
 /// The allocation layout for `cap` entries and the byte offsets of both arrays.
@@ -436,7 +426,7 @@ impl Layouts {
     fn new<K, V>(cap: usize) -> Option<Self> {
         let keys = Layout::array::<K>(cap).ok()?;
         let values = Layout::array::<V>(cap).ok()?;
-        Some(if KeysFirst::<K, V>::VALUE {
+        Some(if keys_first::<K, V>() {
             let (layout, values) = keys.extend(values).ok()?;
             Self {
                 layout,

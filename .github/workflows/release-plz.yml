@@ -17,6 +17,7 @@ jobs:
     permissions:
       contents: write # push the tag and create the GitHub release
       id-token: write # crates.io trusted publishing
+      pull-requests: read # find the release PR a commit came from
     concurrency:
       group: release-plz-release
       cancel-in-progress: false

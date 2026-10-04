@@ -241,6 +241,25 @@ impl<K: Key, V> SparseMap<K, V> {
     /// The stored key is kept on replacement. A new entry is appended to the
     /// dense arrays.
     ///
+    /// <!-- diagram: insert -->
+    /// ```text
+    /// map.insert(9, 'd') -> None
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┬───┬───┬───┬───┬───┬───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   │ 3 │   │ 1 │   │   │   │ 2 │   ┃ 4 ┃   │   │   │   │   │   │ …
+    ///           └───┴───┴───┴───┴───┴───┴───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┘
+    ///                         ╭───────────────────────╯
+    ///             0   1   2   ▼
+    ///           ┌───┬───┬───┲━━━┓
+    ///   keys    │ 3 │ 7 │ 1 ┃ 9 ┃
+    ///           ├───┼───┼───╊━━━┫
+    ///   values  │ a │ b │ c ┃ d ┃
+    ///           └───┴───┴───┺━━━┛
+    ///
+    ///   len 3 -> 4, capacity 4, key_capacity 64
+    ///   sparse[9]  0 -> 4  key 9 pushed at position 3
+    /// ```
+    ///
     /// # Panics
     ///
     /// Panics if the map already holds `u32::MAX` entries or allocation fails.
@@ -312,6 +331,26 @@ impl<K: Key, V> SparseMap<K, V> {
     ///
     /// The last entry moves into the vacated position.
     ///
+    /// <!-- diagram: remove -->
+    /// ```text
+    /// map.remove(3) -> Some('a')
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   ┃ 1 ┃   ┃   ┃   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
+    ///           └───┺━━━┹───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+    ///             ╭───╯
+    ///             ▼   1   2   3
+    ///           ┏━━━┱───┲━━━┱───┐
+    ///   keys    ┃ 1 ┃ 7 ┃░░░┃░░░│
+    ///           ┣━━━╉───╊━━━╉───┤
+    ///   values  ┃ c ┃ b ┃░░░┃░░░│
+    ///           ┗━━━┹───┺━━━┹───┘
+    ///
+    ///   len 3 -> 2, capacity 4, key_capacity 64
+    ///   sparse[3]  1 -> 0  key 3 removed from position 0
+    ///   sparse[1]  3 -> 1  key 1 moved from position 2 to 0
+    /// ```
+    ///
     /// # Examples
     ///
     /// ```
@@ -370,6 +409,26 @@ impl<K: Key, V> SparseMap<K, V> {
     }
 
     /// Removes every entry, keeping allocations.
+    ///
+    /// <!-- diagram: clear -->
+    /// ```text
+    /// map.clear()
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   ┃   ┃   ┃   ┃   │   │   ┃   ┃   │   │   │   │   │   │   │   │ …
+    ///           └───┺━━━┹───┺━━━┹───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┘
+    ///             0   1   2   3
+    ///           ┏━━━┳━━━┳━━━┱───┐
+    ///   keys    ┃░░░┃░░░┃░░░┃░░░│
+    ///           ┣━━━╋━━━╋━━━╉───┤
+    ///   values  ┃░░░┃░░░┃░░░┃░░░│
+    ///           ┗━━━┻━━━┻━━━┹───┘
+    ///
+    ///   len 3 -> 0, capacity 4, key_capacity 64
+    ///   sparse[3]  1 -> 0  key 3 removed from position 0
+    ///   sparse[7]  2 -> 0  key 7 removed from position 1
+    ///   sparse[1]  3 -> 0  key 1 removed from position 2
+    /// ```
     pub fn clear(&mut self) {
         self.sparse.remove_all(indices(self.dense.keys()));
         self.dense.clear();
@@ -388,6 +447,27 @@ impl<K: Key, V> SparseMap<K, V> {
     ///
     /// Visits each entry once, in reverse dense order. Removed entries are
     /// replaced by already visited ones.
+    ///
+    /// <!-- diagram: retain -->
+    /// ```text
+    /// map.retain(|key, _| key > 5)
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   ┃   ┃   ┃   ┃   │   │   ┃ 1 ┃   │   │   │   │   │   │   │   │ …
+    ///           └───┺━━━┹───┺━━━┹───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┘
+    ///             ╭───────────────────────────╯
+    ///             ▼   1   2   3
+    ///           ┏━━━┳━━━┳━━━┱───┐
+    ///   keys    ┃ 7 ┃░░░┃░░░┃░░░│
+    ///           ┣━━━╋━━━╋━━━╉───┤
+    ///   values  ┃ b ┃░░░┃░░░┃░░░│
+    ///           ┗━━━┻━━━┻━━━┹───┘
+    ///
+    ///   len 3 -> 1, capacity 4, key_capacity 64
+    ///   sparse[3]  1 -> 0  key 3 removed from position 0
+    ///   sparse[1]  3 -> 0  key 1 removed from position 2
+    ///   sparse[7]  2 -> 1  key 7 moved from position 1 to 0
+    /// ```
     ///
     /// # Examples
     ///

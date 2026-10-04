@@ -122,6 +122,23 @@ impl<K: Key> SparseSet<K> {
 
     /// Adds `key`, returning `true` if it was absent.
     ///
+    /// <!-- diagram: set-insert -->
+    /// ```text
+    /// set.insert(9) -> true
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┬───┬───┬───┬───┬───┬───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   │ 3 │   │ 1 │   │   │   │ 2 │   ┃ 4 ┃   │   │   │   │   │   │ …
+    ///           └───┴───┴───┴───┴───┴───┴───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┘
+    ///                         ╭───────────────────────╯
+    ///             0   1   2   ▼
+    ///           ┌───┬───┬───┲━━━┓
+    ///   keys    │ 3 │ 7 │ 1 ┃ 9 ┃
+    ///           └───┴───┴───┺━━━┛
+    ///
+    ///   len 3 -> 4, capacity 4, key_capacity 64
+    ///   sparse[9]  0 -> 4  key 9 pushed at position 3
+    /// ```
+    ///
     /// # Panics
     ///
     /// Panics if the set already holds `u32::MAX` keys or allocation fails.
@@ -133,12 +150,48 @@ impl<K: Key> SparseSet<K> {
     /// Removes `key`, returning `true` if it was present.
     ///
     /// The last key moves into the vacated position.
+    ///
+    /// <!-- diagram: set-remove -->
+    /// ```text
+    /// set.remove(3) -> true
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   ┃ 1 ┃   ┃   ┃   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
+    ///           └───┺━━━┹───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+    ///             ╭───╯
+    ///             ▼   1   2   3
+    ///           ┏━━━┱───┲━━━┱───┐
+    ///   keys    ┃ 1 ┃ 7 ┃░░░┃░░░│
+    ///           ┗━━━┹───┺━━━┹───┘
+    ///
+    ///   len 3 -> 2, capacity 4, key_capacity 64
+    ///   sparse[3]  1 -> 0  key 3 removed from position 0
+    ///   sparse[1]  3 -> 1  key 1 moved from position 2 to 0
+    /// ```
     #[inline]
     pub fn remove(&mut self, key: K) -> bool {
         self.map.remove(key).is_some()
     }
 
     /// Removes every key, keeping allocations.
+    ///
+    /// <!-- diagram: set-clear -->
+    /// ```text
+    /// set.clear()
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   ┃   ┃   ┃   ┃   │   │   ┃   ┃   │   │   │   │   │   │   │   │ …
+    ///           └───┺━━━┹───┺━━━┹───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┘
+    ///             0   1   2   3
+    ///           ┏━━━┳━━━┳━━━┱───┐
+    ///   keys    ┃░░░┃░░░┃░░░┃░░░│
+    ///           ┗━━━┻━━━┻━━━┹───┘
+    ///
+    ///   len 3 -> 0, capacity 4, key_capacity 64
+    ///   sparse[3]  1 -> 0  key 3 removed from position 0
+    ///   sparse[7]  2 -> 0  key 7 removed from position 1
+    ///   sparse[1]  3 -> 0  key 1 removed from position 2
+    /// ```
     pub fn clear(&mut self) {
         self.map.clear();
     }
@@ -153,6 +206,25 @@ impl<K: Key> SparseSet<K> {
     /// Keeps only the keys for which `keep` returns `true`.
     ///
     /// Visits each key once, in reverse dense order.
+    ///
+    /// <!-- diagram: set-retain -->
+    /// ```text
+    /// set.retain(|key| key > 5)
+    ///             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+    ///           ┌───┲━━━┱───┲━━━┱───┬───┬───┲━━━┱───┬───┬───┬───┬───┬───┬───┬───┐
+    ///   sparse  │   ┃   ┃   ┃   ┃   │   │   ┃ 1 ┃   │   │   │   │   │   │   │   │ …
+    ///           └───┺━━━┹───┺━━━┹───┴───┴───┺━━━┹───┴───┴───┴───┴───┴───┴───┴───┘
+    ///             ╭───────────────────────────╯
+    ///             ▼   1   2   3
+    ///           ┏━━━┳━━━┳━━━┱───┐
+    ///   keys    ┃ 7 ┃░░░┃░░░┃░░░│
+    ///           ┗━━━┻━━━┻━━━┹───┘
+    ///
+    ///   len 3 -> 1, capacity 4, key_capacity 64
+    ///   sparse[3]  1 -> 0  key 3 removed from position 0
+    ///   sparse[1]  3 -> 0  key 1 removed from position 2
+    ///   sparse[7]  2 -> 1  key 7 moved from position 1 to 0
+    /// ```
     pub fn retain(&mut self, mut keep: impl FnMut(K) -> bool) {
         self.map.retain(|key, ()| keep(key));
     }

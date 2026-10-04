@@ -29,9 +29,6 @@ pub struct SparseSet<K> {
 /// Iterator over the keys of a [`SparseSet`] in dense order.
 pub type Iter<'a, K> = Copied<slice::Iter<'a, K>>;
 
-/// Owning iterator over the keys of a [`SparseSet`] in dense order.
-pub type IntoIter<K> = map::IntoKeys<K, ()>;
-
 impl<K> SparseSet<K> {
     /// Creates an empty set without allocating.
     #[must_use]
@@ -333,35 +330,54 @@ pub struct Drain<'a, K> {
     inner: map::Drain<'a, K, ()>,
 }
 
-impl<K: Copy> Iterator for Drain<'_, K> {
-    type Item = K;
-
-    #[inline]
-    fn next(&mut self) -> Option<K> {
-        self.inner.next().map(|(key, ())| key)
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
+/// Owning iterator over the keys of a [`SparseSet`] in dense order.
+///
+/// Created by [`SparseSet::into_iter`].
+#[must_use = "iterators are lazy and do nothing unless consumed"]
+pub struct IntoIter<K> {
+    inner: map::IntoKeys<K, ()>,
 }
 
-impl<K: Copy> DoubleEndedIterator for Drain<'_, K> {
-    #[inline]
-    fn next_back(&mut self) -> Option<K> {
-        self.inner.next_back().map(|(key, ())| key)
-    }
+macro_rules! key_iterator {
+    ($name:ident<$($lt:lifetime,)? K>, $next:expr) => {
+        impl<$($lt,)? K> Iterator for $name<$($lt,)? K> {
+            type Item = K;
+
+            #[inline]
+            fn next(&mut self) -> Option<K> {
+                self.inner.next().map($next)
+            }
+
+            #[inline]
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.inner.size_hint()
+            }
+        }
+
+        impl<$($lt,)? K> DoubleEndedIterator for $name<$($lt,)? K> {
+            #[inline]
+            fn next_back(&mut self) -> Option<K> {
+                self.inner.next_back().map($next)
+            }
+        }
+
+        impl<$($lt,)? K> ExactSizeIterator for $name<$($lt,)? K> {}
+
+        impl<$($lt,)? K> FusedIterator for $name<$($lt,)? K> {}
+
+        impl<$($lt,)? K> fmt::Debug for $name<$($lt,)? K> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+    };
 }
 
-impl<K: Copy> ExactSizeIterator for Drain<'_, K> {}
+key_iterator!(Drain<'a, K>, key_of);
+key_iterator!(IntoIter<K>, core::convert::identity);
 
-impl<K: Copy> FusedIterator for Drain<'_, K> {}
-
-impl<K> fmt::Debug for Drain<'_, K> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Drain").finish_non_exhaustive()
-    }
+fn key_of<K>((key, ()): (K, ())) -> K {
+    key
 }
 
 impl<K: Key> Clone for SparseSet<K> {
@@ -425,7 +441,9 @@ impl<K> IntoIterator for SparseSet<K> {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.map.into_keys()
+        IntoIter {
+            inner: self.map.into_keys(),
+        }
     }
 }
 

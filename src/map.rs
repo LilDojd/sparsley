@@ -189,9 +189,9 @@ impl<K: Key, V> SparseMap<K, V> {
     #[inline]
     #[must_use]
     pub fn get(&self, key: K) -> Option<&V> {
-        let position = self.get_index_of(key)?;
-        // SAFETY: `position` only returns positions below `len`.
-        Some(unsafe { self.dense.values().get_unchecked(position) })
+        let index = self.get_index_of(key)?;
+        // SAFETY: `get_index_of` only returns indices below `len`.
+        Some(unsafe { self.dense.values().get_unchecked(index) })
     }
 
     /// Returns the stored key and a reference to its value.
@@ -205,9 +205,9 @@ impl<K: Key, V> SparseMap<K, V> {
     #[inline]
     #[must_use]
     pub fn get_mut(&mut self, key: K) -> Option<&mut V> {
-        let position = self.get_index_of(key)?;
-        // SAFETY: `position` only returns positions below `len`.
-        Some(unsafe { self.dense.values_mut().get_unchecked_mut(position) })
+        let index = self.get_index_of(key)?;
+        // SAFETY: `get_index_of` only returns indices below `len`.
+        Some(unsafe { self.dense.values_mut().get_unchecked_mut(index) })
     }
 
     /// Returns mutable references to the values of `N` keys at once.
@@ -230,17 +230,17 @@ impl<K: Key, V> SparseMap<K, V> {
     /// ```
     #[must_use]
     pub fn get_disjoint_mut<const N: usize>(&mut self, keys: [K; N]) -> [Option<&mut V>; N] {
-        let positions = keys.map(|key| self.get_index_of(key));
-        for (i, position) in positions.iter().enumerate() {
+        let indices = keys.map(|key| self.get_index_of(key));
+        for (i, index) in indices.iter().enumerate() {
             assert!(
-                position.is_none() || !positions[..i].contains(position),
+                index.is_none() || !indices[..i].contains(index),
                 "duplicate keys in get_disjoint_mut"
             );
         }
         let values = self.dense.values_mut().as_mut_ptr();
-        // SAFETY: present positions are in bounds and pairwise distinct, so
+        // SAFETY: present indices are in bounds and pairwise distinct, so
         // the references are disjoint and live no longer than `&mut self`.
-        positions.map(|position| position.map(|position| unsafe { &mut *values.add(position) }))
+        indices.map(|index| index.map(|index| unsafe { &mut *values.add(index) }))
     }
 
     /// Inserts `value` at `key`, returning the previous value.
@@ -286,15 +286,15 @@ impl<K: Key, V> SparseMap<K, V> {
         let Some(slot) = self.sparse.flagged(key.slot()) else {
             return self.insert_slow(key, value);
         };
-        if let Some(position) = slot.get(len) {
-            // SAFETY: `position` only returns positions below `len`.
-            let stored = unsafe { self.dense.values_mut().get_unchecked_mut(position) };
+        if let Some(index) = slot.get(len) {
+            // SAFETY: `Slot::get` only returns indices below `len`.
+            let stored = unsafe { self.dense.values_mut().get_unchecked_mut(index) };
             return Some(mem::replace(stored, value));
         }
         if self.dense.is_full() {
             return self.insert_slow(key, value);
         }
-        // SAFETY: the storage is not full, so `len` becomes a valid position
+        // SAFETY: the storage is not full, so `len` becomes a valid index
         // below `MAX_LEN`.
         unsafe {
             self.dense.push_unchecked(key, value);
@@ -375,8 +375,8 @@ impl<K: Key, V> SparseMap<K, V> {
     /// Removes `key`, returning the stored key and its value.
     #[inline]
     pub fn remove_entry(&mut self, key: K) -> Option<(K, V)> {
-        let position = self.sparse.take(key.slot(), self.len())?;
-        Some(self.swap_remove(position))
+        let index = self.sparse.take(key.slot(), self.len())?;
+        Some(self.swap_remove(index))
     }
 
     /// Removes the entry at dense `index`, moving the last entry into the gap.
@@ -488,12 +488,12 @@ impl<K: Key, V> SparseMap<K, V> {
     /// assert_eq!(map[6], 61);
     /// ```
     pub fn retain(&mut self, mut keep: impl FnMut(K, &mut V) -> bool) {
-        for position in (0..self.len()).rev() {
+        for index in (0..self.len()).rev() {
             let (keys, values) = self.dense.slices_mut();
-            let key = keys[position];
-            if !keep(key, &mut values[position]) {
+            let key = keys[index];
+            if !keep(key, &mut values[index]) {
                 self.sparse.remove(key.slot());
-                self.swap_remove(position);
+                self.swap_remove(index);
             }
         }
     }
@@ -557,11 +557,11 @@ impl<K: Key, V> SparseMap<K, V> {
     /// Removes the entry at `position`, moving the last entry into its place.
     /// The removed key's slot must already be empty.
     #[inline]
-    fn swap_remove(&mut self, position: usize) -> (K, V) {
+    fn swap_remove(&mut self, index: usize) -> (K, V) {
         let last = self.keys().last().copied();
-        let entry = self.dense.swap_remove(position);
-        if let Some(moved) = last.filter(|_| position < self.len()) {
-            self.sparse.repoint(moved.slot(), position);
+        let entry = self.dense.swap_remove(index);
+        if let Some(moved) = last.filter(|_| index < self.len()) {
+            self.sparse.repoint(moved.slot(), index);
         }
         entry
     }

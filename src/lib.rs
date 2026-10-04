@@ -20,37 +20,53 @@
 //!
 //! # Layout
 //!
+//! <!-- diagram: layout -->
 //! ```text
-//!               0   1   2   3   4   5   6   7   8   9
-//!   sparse      .   3   .   1   .   .   .   2   .   4     slot = position + 1
+//!             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+//!           ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+//!   sparse  │   │ 3 │   │ 1 │   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
+//!           └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+//!             0   1   2   3
+//!           ┌───┬───┬───┬───┐
+//!   keys    │ 3 │ 7 │ 1 │░░░│
+//!           ├───┼───┼───┼───┤
+//!   values  │ a │ b │ c │░░░│
+//!           └───┴───┴───┴───┘
 //!
-//!               0   1   2   3
-//!   keys        3   7   1   9
-//!   values      a   b   c   d
+//!   len 3, capacity 4, key_capacity 64
 //! ```
 //!
 //! The sparse array maps a key's index to its dense position. Slots store
-//! `position + 1` in a `u32`, so an empty slot is zero: sparse memory comes
-//! from zeroed allocations, which the system allocator maps lazily, and a
-//! lookup is two loads and two comparisons.
+//! `position + 1` in a `u32`, so an empty slot (drawn blank) is zero: sparse
+//! memory comes from zeroed allocations, which the system allocator maps
+//! lazily, and a lookup is two loads and two comparisons.
 //!
 //! Keys and values live in one allocation as two parallel arrays, so
-//! [`SparseMap::values`] is a real `&[V]`.
+//! [`SparseMap::values`] is a real `&[V]`. Shaded cells are unused capacity.
 //!
 //! Removal moves the last entry into the hole, then repairs its slot:
 //!
+//! <!-- diagram: remove -->
 //! ```text
-//!   map.remove(3)
-//!               0   1   2   3   4   5   6   7   8   9
-//!   sparse      .   3   .   .*  .   .   .   2   .   1*
+//! map.remove(3) -> Some('a')
+//!             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+//!           ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+//!   sparse  │   │ 1*│   │  *│   │   │   │ 2 │   │   │   │   │   │   │   │   │ …
+//!           └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+//!             0   1   2   3
+//!           ┌───┬───┬───┬───┐
+//!   keys    │ 1*│ 7 │░░*│░░░│
+//!           ├───┼───┼───┼───┤
+//!   values  │ c*│ b │░░*│░░░│
+//!           └───┴───┴───┴───┘
 //!
-//!               0   1   2   3
-//!   keys        9*  7   1   -*
-//!   values      d*  b   c   -*
+//!   len 3 -> 2, capacity 4, key_capacity 64
+//!   sparse[3]  1 -> 0  key 3 removed from position 0
+//!   sparse[1]  3 -> 1  key 1 moved from position 2 to 0
 //! ```
 //!
 //! Dense order is therefore unspecified, and positions change on removal.
-//! Run `cargo run --example memory` to trace any sequence of operations.
+//! `DESIGN.md` in the repository diagrams every operation.
 //!
 //! # Limits
 //!

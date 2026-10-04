@@ -1,0 +1,78 @@
+name: Release-plz
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  # Publishes to crates.io and creates the git tag and GitHub release once a
+  # release PR is merged.
+  release:
+    name: Release
+    if: github.repository == 'LilDojd/sparsley'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # push the tag and create the GitHub release
+      id-token: write # crates.io trusted publishing
+    concurrency:
+      group: release-plz-release
+      cancel-in-progress: false
+    steps:
+      - name: Generate GitHub App token
+        # Tags pushed with the default GITHUB_TOKEN do not trigger workflows.
+        if: vars.RELEASE_PLZ_APP_ID != ''
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - &toolchain
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+      - uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          RUSTUP_TOOLCHAIN: stable
+
+  # Opens or updates the release PR with version bumps and changelog.
+  release-pr:
+    name: Release PR
+    if: github.repository == 'LilDojd/sparsley'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the release branch
+      pull-requests: write # open and update the release PR
+    concurrency:
+      group: release-plz-pr
+      cancel-in-progress: false
+    steps:
+      - name: Generate GitHub App token
+        # PRs opened with the default GITHUB_TOKEN do not trigger CI.
+        if: vars.RELEASE_PLZ_APP_ID != ''
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - *checkout
+      - *toolchain
+      - uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          RUSTUP_TOOLCHAIN: stable

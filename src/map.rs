@@ -457,8 +457,9 @@ impl<K: Key, V> SparseMap<K, V> {
     /// The removed key's slot must already be empty.
     #[inline]
     fn swap_remove(&mut self, position: usize) -> (K, V) {
+        let last = self.keys().last().copied();
         let entry = self.dense.swap_remove(position);
-        if let Some(&moved) = self.keys().get(position) {
+        if let Some(moved) = last.filter(|_| position < self.len()) {
             self.sparse.repoint(moved.index(), position);
         }
         entry

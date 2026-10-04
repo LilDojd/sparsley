@@ -2,60 +2,244 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch new advisories, lints and nightly regressions.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
-  RUSTDOCFLAGS: -D warnings
+  CARGO_INCREMENTAL: 0
+  # Overrides rust-toolchain.toml, which pins the local development toolchain.
+  RUSTUP_TOOLCHAIN: stable
 
 jobs:
-  lint:
+  fmt:
+    name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: rustfmt, clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets
-      - run: cargo doc --no-deps
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }}, ${{ matrix.flags }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        flags: [--all-features, --no-default-features]
+        include:
+          - os: ubuntu-latest
+            flags: --all-features --release
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
-      - run: cargo test --release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: |
+          # shellcheck disable=SC2086 # FLAGS holds several arguments
+          cargo test --workspace $FLAGS
+        shell: bash
+        env:
+          FLAGS: ${{ matrix.flags }}
 
   msrv:
+    name: MSRV
     runs-on: ubuntu-latest
+    env:
+      # Keep in sync with `rust-version` in Cargo.toml.
+      RUSTUP_TOOLCHAIN: "1.92"
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.92
-      - run: cargo check --lib
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: "1.92"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo check -p sparsley --all-features
+      - run: cargo check -p sparsley --no-default-features
 
   no-std:
+    name: no_std
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
           targets: thumbv7em-none-eabihf
-      - run: cargo build --lib --target thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build -p sparsley --target thumbv7em-none-eabihf --no-default-features
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+      RUSTDOCFLAGS: -D warnings --cfg docsrs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo doc -p sparsley --no-deps --all-features
 
   miri:
+    name: Miri (${{ matrix.target }}, ${{ matrix.borrows }} borrows)
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        flags: ["", "-Zmiri-tree-borrows"]
-        target: [x86_64-unknown-linux-gnu, i686-unknown-linux-gnu]
+        include:
+          - target: x86_64-unknown-linux-gnu
+            borrows: stacked
+            flags: ""
+          - target: x86_64-unknown-linux-gnu
+            borrows: tree
+            flags: -Zmiri-tree-borrows
+          - target: i686-unknown-linux-gnu
+            borrows: stacked
+            flags: ""
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+      MIRIFLAGS: -Zmiri-strict-provenance ${{ matrix.flags }}
+      TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: miri
-      - run: cargo miri test --target ${{ matrix.target }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: nightly
+          components: miri, rust-src
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo miri setup --target "$TARGET"
+      - run: cargo miri test -p sparsley --all-features --target "$TARGET"
+
+  deny:
+    name: cargo-deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [advisories, bans licenses sources]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        # A new advisory should not block unrelated pull requests; main and
+        # the weekly schedule still fail on it.
+        continue-on-error: ${{ matrix.checks == 'advisories' && github.event_name == 'pull_request' }}
+        with:
+          command: check ${{ matrix.checks }}
+
+  semver:
+    name: Semver
+    # Pull requests that declare a breaking change (`feat!: ...`) skip the check.
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.title, '!:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
+        with:
+          tool: cargo-semver-checks
+      - run: cargo semver-checks -p sparsley --baseline-rev "origin/${BASE_REF}"
         env:
-          MIRIFLAGS: ${{ matrix.flags }}
+          BASE_REF: ${{ github.base_ref }}
+
+  typos:
+    name: Typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: crate-ci/typos@00f422f3b19c57bc6338715ebfe3316d38768461 # v1.50.3
+        with:
+          config: .github/typos.toml
+
+  bench:
+    name: Benches compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo bench --no-run -p sparsley-bench
+
+  # Single required status check for branch protection and merge queues.
+  ci-success:
+    name: CI success
+    if: always()
+    needs: [fmt, clippy, test, msrv, no-std, docs, miri, deny, semver, typos, bench]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        run: jq --exit-status 'all(.[]; .result == "success" or .result == "skipped")' <<< "$NEEDS"
+        env:
+          NEEDS: ${{ toJSON(needs) }}

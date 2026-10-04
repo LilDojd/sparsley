@@ -1,0 +1,6 @@
+[default.extend-words]
+sparsley = "sparsley"
+
+[files]
+# Generated from commit messages, which cannot be corrected after the fact.
+extend-exclude = ["CHANGELOG.md"]

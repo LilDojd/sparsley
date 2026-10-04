@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `i32: Key` is not satisfied
+ --> tests/ui/signed_keys.rs:5:9
+  |
+5 |     set.insert(-1i32);
+  |         ^^^^^^ ----- `i32` doesn't satisfy the trait bound
+  |         |
+  |         the trait `Key` is not implemented for `i32`
+  |
+  = help: the following other types implement trait `Key`:
+            u16
+            u32
+            u64
+            u8
+            usize
+note: required by a bound in `SparseSet::<K>::insert`
+ --> src/set.rs
+  |
+  | impl<K: Key> SparseSet<K> {
+  |         ^^^ required by this bound in `SparseSet::<K>::insert`
+...
+  |     pub fn insert(&mut self, key: K) -> bool {
+  |            ------ required by a bound in this associated function

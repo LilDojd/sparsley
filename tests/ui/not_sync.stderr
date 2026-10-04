@@ -1,0 +1,19 @@
+error[E0277]: `Cell<u8>` cannot be shared between threads safely
+ --> tests/ui/not_sync.rs:8:19
+  |
+8 |     assert_sync::<SparseMap<u32, Cell<u8>>>();
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^ `Cell<u8>` cannot be shared between threads safely
+  |
+  = help: the trait `Sync` is not implemented for `Cell<u8>`
+  = note: if you want to do aliasing and mutation between multiple threads, use `std::sync::RwLock` or `std::sync::atomic::AtomicU8` instead
+  = note: required for `sparsley::dense::Dense<u32, Cell<u8>>` to implement `Sync`
+note: required because it appears within the type `SparseMap<u32, Cell<u8>>`
+ --> src/map.rs
+  |
+  | pub struct SparseMap<K, V> {
+  |            ^^^^^^^^^
+note: required by a bound in `assert_sync`
+ --> tests/ui/not_sync.rs:5:19
+  |
+5 | fn assert_sync<T: Sync>() {}
+  |                   ^^^^ required by this bound in `assert_sync`

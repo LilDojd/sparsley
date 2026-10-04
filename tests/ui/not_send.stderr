@@ -1,0 +1,37 @@
+error[E0277]: `Rc<u8>` cannot be sent between threads safely
+ --> tests/ui/not_send.rs:8:19
+  |
+8 |     assert_send::<SparseMap<u32, Rc<u8>>>();
+  |                   ^^^^^^^^^^^^^^^^^^^^^^ `Rc<u8>` cannot be sent between threads safely
+  |
+  = help: the trait `Send` is not implemented for `Rc<u8>`
+  = note: required for `sparsley::dense::Dense<u32, Rc<u8>>` to implement `Send`
+note: required because it appears within the type `SparseMap<u32, Rc<u8>>`
+ --> src/map.rs
+  |
+  | pub struct SparseMap<K, V> {
+  |            ^^^^^^^^^
+note: required by a bound in `assert_send`
+ --> tests/ui/not_send.rs:5:19
+  |
+5 | fn assert_send<T: Send>() {}
+  |                   ^^^^ required by this bound in `assert_send`
+
+error[E0277]: `Rc<u8>` cannot be sent between threads safely
+ --> tests/ui/not_send.rs:9:19
+  |
+9 |     assert_send::<map::IntoIter<u32, Rc<u8>>>();
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^ `Rc<u8>` cannot be sent between threads safely
+  |
+  = help: the trait `Send` is not implemented for `Rc<u8>`
+  = note: required for `sparsley::dense::RawEntries<u32, Rc<u8>>` to implement `Send`
+note: required because it appears within the type `sparsley::map::IntoIter<u32, Rc<u8>>`
+ --> src/map/iter.rs
+  |
+  | pub struct IntoIter<K, V> {
+  |            ^^^^^^^^
+note: required by a bound in `assert_send`
+ --> tests/ui/not_send.rs:5:19
+  |
+5 | fn assert_send<T: Send>() {}
+  |                   ^^^^ required by this bound in `assert_send`

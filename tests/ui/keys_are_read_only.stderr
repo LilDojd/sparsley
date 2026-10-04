@@ -1,0 +1,8 @@
+error[E0594]: cannot assign to `keys[_]`, which is behind a `&` reference
+ --> tests/ui/keys_are_read_only.rs:7:5
+  |
+5 |     let (keys, values) = map.as_mut_slices();
+  |          ---- consider changing this binding's type to be: `&mut [u32]`
+6 |     values[0] = 'b';
+7 |     keys[0] = 2;
+  |     ^^^^^^^^^^^ `keys` is a `&` reference, so it cannot be written to

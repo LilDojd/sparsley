@@ -1,9 +1,10 @@
 //! some edge cases
 
 use std::fmt::Debug;
+use std::panic::{RefUnwindSafe, UnwindSafe};
 
-use sparsley::map::Entry;
-use sparsley::{Key, SparseMap, SparseSet};
+use sparsley::map::{self, Entry};
+use sparsley::{Key, SparseMap, SparseSet, set};
 
 fn sample() -> SparseMap<u32, String> {
     [(3, "c"), (1, "a"), (7, "g"), (5, "e")]
@@ -329,4 +330,22 @@ fn key_types() {
     #[cfg(target_pointer_width = "64")]
     roundtrip([0u64, 300, 7]);
     roundtrip([0usize, 300, 7]);
+}
+
+#[test]
+fn auto_traits_follow_the_contents() {
+    fn owned<T: Send + Sync + Unpin + UnwindSafe + RefUnwindSafe>() {}
+    fn borrowed<T: Send + Sync + Unpin>() {}
+
+    owned::<SparseMap<u32, String>>();
+    owned::<map::IntoIter<u32, String>>();
+    owned::<map::IntoKeys<u32, String>>();
+    owned::<map::IntoValues<u32, String>>();
+    owned::<SparseSet<u32>>();
+    owned::<set::IntoIter<u32>>();
+    borrowed::<map::Iter<'_, u32, String>>();
+    borrowed::<map::IterMut<'_, u32, String>>();
+    borrowed::<map::Drain<'_, u32, String>>();
+    borrowed::<map::Entry<'_, u32, String>>();
+    borrowed::<set::Drain<'_, u32>>();
 }

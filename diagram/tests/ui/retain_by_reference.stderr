@@ -1,0 +1,5 @@
+error: values are passed by reference; write `*value`
+ --> tests/ui/retain_by_reference.rs:3:27
+  |
+3 |     map.retain(|_, value| value != 'a');
+  |                           ^^^^^

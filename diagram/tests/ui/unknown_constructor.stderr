@@ -1,0 +1,5 @@
+error: expected `new()`, `with_capacity(n)` or `from([...])`
+ --> tests/ui/unknown_constructor.rs:2:30
+  |
+2 |     let mut map = SparseMap::default();
+  |                              ^^^^^^^

@@ -1,0 +1,5 @@
+error: expected a char value, like the others
+ --> tests/ui/mixed_values.rs:3:19
+  |
+3 |     map.insert(1, 2);
+  |                   ^

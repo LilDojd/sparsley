@@ -1,0 +1,5 @@
+error: `SparseMap::drain` is not supported by the diagram model
+ --> tests/ui/unsupported_method.rs:3:9
+  |
+3 |     map.drain();
+  |         ^^^^^

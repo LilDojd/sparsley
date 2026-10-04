@@ -1,0 +1,5 @@
+error: index out of bounds: the length is 2
+ --> tests/ui/index_out_of_bounds.rs:3:5
+  |
+3 |     map.swap_indices(0, 2);
+  |     ^^^

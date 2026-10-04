@@ -16,3 +16,6 @@ proc-macro = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+trybuild = "1.0.121"

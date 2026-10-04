@@ -56,6 +56,12 @@ pub(crate) enum Op {
     },
     /// `get` or `get_mut`.
     Get(usize),
+    GetKeyValue(usize),
+    /// `entry(key).or_insert(value)`.
+    EntryOrInsert {
+        key: usize,
+        value: Value,
+    },
     /// `contains_key` or `contains`.
     Contains(usize),
     GetIndexOf(usize),
@@ -251,6 +257,7 @@ fn call(input: &mut Cursor<'_>, name: &str, kind: Kind, values: &mut ValueType) 
     let (method, method_span) = input.ident()?;
     let mut args = input.parenthesized()?;
     let mut texts = Vec::new();
+    let mut chained = String::new();
     let op = match (kind, method.as_str()) {
         (Kind::Map, "insert") => {
             let key = key(&mut args, &mut texts)?;
@@ -270,12 +277,24 @@ fn call(input: &mut Cursor<'_>, name: &str, kind: Kind, values: &mut ValueType) 
         (Kind::Map, "contains_key") | (Kind::Set, "contains") => {
             Op::Contains(key(&mut args, &mut texts)?)
         }
-        (Kind::Map, "get_index_of") => Op::GetIndexOf(key(&mut args, &mut texts)?),
-        (Kind::Map, "get_index") => Op::GetIndex(key(&mut args, &mut texts)?),
+        (Kind::Map, "get_key_value") => Op::GetKeyValue(key(&mut args, &mut texts)?),
+        (Kind::Map, "entry") => {
+            let key = key(&mut args, &mut texts)?;
+            input.punct('.')?;
+            input.keyword("or_insert")?;
+            let mut inner = input.parenthesized()?;
+            let value = inner.value(values)?;
+            inner.separator()?;
+            inner.finish()?;
+            chained = format!(".or_insert({value:?})");
+            Op::EntryOrInsert { key, value }
+        }
+        (_, "get_index_of") => Op::GetIndexOf(key(&mut args, &mut texts)?),
+        (_, "get_index") => Op::GetIndex(key(&mut args, &mut texts)?),
         (_, "remove") => Op::Remove(key(&mut args, &mut texts)?),
         (Kind::Map, "remove_entry") => Op::RemoveEntry(key(&mut args, &mut texts)?),
         (_, "swap_remove_index") => Op::SwapRemoveIndex(key(&mut args, &mut texts)?),
-        (Kind::Map, "swap_indices") => {
+        (_, "swap_indices") => {
             let a = key(&mut args, &mut texts)?;
             args.punct(',')?;
             Op::SwapIndices(a, key(&mut args, &mut texts)?)
@@ -286,9 +305,9 @@ fn call(input: &mut Cursor<'_>, name: &str, kind: Kind, values: &mut ValueType) 
             texts.push(predicate.text.clone());
             Op::Retain(predicate)
         }
-        (Kind::Map, "reserve") => Op::Reserve(key(&mut args, &mut texts)?),
-        (Kind::Map, "reserve_keys") => Op::ReserveKeys(key(&mut args, &mut texts)?),
-        (Kind::Map, "shrink_to_fit") => Op::ShrinkToFit,
+        (_, "reserve") => Op::Reserve(key(&mut args, &mut texts)?),
+        (_, "reserve_keys") => Op::ReserveKeys(key(&mut args, &mut texts)?),
+        (_, "shrink_to_fit") => Op::ShrinkToFit,
         (Kind::Map, "sort_unstable_keys") | (Kind::Set, "sort_unstable") => Op::Sort,
         _ => {
             let ty = match kind {
@@ -305,7 +324,7 @@ fn call(input: &mut Cursor<'_>, name: &str, kind: Kind, values: &mut ValueType) 
     args.finish()?;
     input.punct(';')?;
     Ok(Call {
-        text: format!("{name}.{method}({})", texts.join(", ")),
+        text: format!("{name}.{method}({}){chained}", texts.join(", ")),
         op,
         span,
     })

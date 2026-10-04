@@ -81,6 +81,9 @@ fn parses_every_method() {
         "reserve_keys(100)",
         "shrink_to_fit()",
         "sort_unstable_keys()",
+        "get_key_value(1)",
+        "entry(1).or_insert('z')",
+        "entry(5).or_insert('z')",
     ];
     for call in map {
         let source = format!("{MAP} map.{call};");
@@ -94,6 +97,12 @@ fn parses_every_method() {
         "clear()",
         "retain(|k| k >= 3)",
         "sort_unstable()",
+        "get_index(0)",
+        "get_index_of(3)",
+        "swap_indices(0, 1)",
+        "reserve(4)",
+        "reserve_keys(9)",
+        "shrink_to_fit()",
     ];
     for call in set {
         let source = format!("let mut set = SparseSet::from([3, 7]); set.{call};");
@@ -162,7 +171,7 @@ fn rejects_bad_input() {
     );
     rejects(
         &format!("{MAP} map.swap_indices(0, 9);"),
-        "position out of bounds: the length is 4",
+        "index out of bounds: the length is 4",
         Some("map"),
     );
 }

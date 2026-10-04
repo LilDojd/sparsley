@@ -119,104 +119,112 @@ impl Model {
     /// Applies `op`, returning the `Debug` text of its result and the key
     /// index it looked up.
     fn apply(&mut self, op: &Op) -> std::result::Result<(String, Option<usize>), String> {
-        let entry = |(key, value): (usize, Option<Value>)| match value {
-            Some(value) => format!("({key}, {value:?})"),
-            None => key.to_string(),
-        };
-        let some =
-            |text: Option<String>| text.map_or_else(|| "None".to_owned(), |t| format!("Some({t})"));
+        if let Some(lookup) = self.look_up(op) {
+            return Ok(lookup);
+        }
+        let unit = || ("()".to_owned(), None);
         let set = self.kind == Kind::Set;
-        let key_at =
-            |model: &Self, position: usize| model.entries.get(position).map(|&(key, _)| key);
         Ok(match *op {
             Op::Insert { key, value } => {
                 let result = match (self.insert(key, value), set) {
                     (Insertion::Added, true) => "true".to_owned(),
                     (Insertion::Replaced(_), true) => "false".to_owned(),
                     (Insertion::Added, false) => "None".to_owned(),
-                    (Insertion::Replaced(old), false) => {
-                        format!("Some({:?})", old.expect("map values"))
-                    }
+                    (Insertion::Replaced(old), false) => some(Some(value_text(old))),
                 };
                 (result, Some(key))
             }
-            Op::Get(key) => {
-                let value = self
-                    .position(key)
-                    .map(|p| format!("{:?}", self.entries[p].1.expect("map values")));
-                (some(value), Some(key))
+            Op::EntryOrInsert { key, value } => {
+                self.reserve_slot(key);
+                let current = if let Some(position) = self.position(key) {
+                    self.entries[position].1
+                } else {
+                    self.insert(key, Some(value));
+                    Some(value)
+                };
+                (value_text(current), Some(key))
             }
-            Op::Contains(key) => (self.position(key).is_some().to_string(), Some(key)),
-            Op::GetIndexOf(key) => (some(self.position(key).map(|p| p.to_string())), Some(key)),
-            Op::GetIndex(position) => (
-                some(self.entries.get(position).copied().map(entry)),
-                key_at(self, position),
-            ),
             Op::Remove(key) => {
                 let removed = self.position(key).map(|p| self.entries.swap_remove(p));
                 let result = if set {
                     removed.is_some().to_string()
                 } else {
-                    some(removed.map(|(_, value)| format!("{:?}", value.expect("map values"))))
+                    some(removed.map(|(_, value)| value_text(value)))
                 };
                 (result, Some(key))
             }
             Op::RemoveEntry(key) => {
                 let removed = self.position(key).map(|p| self.entries.swap_remove(p));
-                (some(removed.map(entry)), Some(key))
+                (some(removed.map(entry_text)), Some(key))
             }
-            Op::SwapRemoveIndex(position) => {
-                let focus = key_at(self, position);
-                let removed = (position < self.len()).then(|| self.entries.swap_remove(position));
-                (some(removed.map(entry)), focus)
+            Op::SwapRemoveIndex(index) => {
+                let focus = self.entries.get(index).map(|&(key, _)| key);
+                let removed = (index < self.len()).then(|| self.entries.swap_remove(index));
+                (some(removed.map(entry_text)), focus)
             }
             Op::SwapIndices(a, b) => {
                 if a >= self.len() || b >= self.len() {
-                    return Err(format!(
-                        "position out of bounds: the length is {}",
-                        self.len()
-                    ));
+                    return Err(format!("index out of bounds: the length is {}", self.len()));
                 }
                 self.entries.swap(a, b);
-                ("()".to_owned(), None)
+                unit()
             }
             Op::Clear => {
                 self.entries.clear();
-                ("()".to_owned(), None)
+                unit()
             }
             Op::Retain(ref predicate) => {
-                for position in (0..self.len()).rev() {
-                    if !Self::keep(predicate, self.entries[position]) {
-                        self.entries.swap_remove(position);
+                for index in (0..self.len()).rev() {
+                    if !Self::keep(predicate, self.entries[index]) {
+                        self.entries.swap_remove(index);
                     }
                 }
-                ("()".to_owned(), None)
+                unit()
             }
             Op::Reserve(additional) => {
                 self.reserve(additional);
-                ("()".to_owned(), None)
+                unit()
             }
             Op::ReserveKeys(end) => {
                 if let Some(last) = end.checked_sub(1) {
                     self.reserve_slot(last);
                 }
-                ("()".to_owned(), None)
+                unit()
             }
             Op::ShrinkToFit => {
                 self.capacity = self.len();
-                let end = self
-                    .entries
-                    .iter()
-                    .map(|&(key, _)| key + 1)
-                    .max()
-                    .unwrap_or(0);
-                self.key_capacity = self.key_capacity.min(end);
-                ("()".to_owned(), None)
+                let end = self.entries.iter().map(|&(key, _)| key + 1).max();
+                self.key_capacity = self.key_capacity.min(end.unwrap_or(0));
+                unit()
             }
             Op::Sort => {
                 self.entries.sort_unstable_by_key(|&(key, _)| key);
-                ("()".to_owned(), None)
+                unit()
             }
+            Op::Get(_)
+            | Op::GetKeyValue(_)
+            | Op::Contains(_)
+            | Op::GetIndexOf(_)
+            | Op::GetIndex(_) => unreachable!("lookups are handled by `look_up`"),
+        })
+    }
+
+    /// Returns the result and focus of a call that changes nothing.
+    fn look_up(&self, op: &Op) -> Option<(String, Option<usize>)> {
+        let found = |key| self.position(key).map(|index| self.entries[index]);
+        Some(match *op {
+            Op::Get(key) => (
+                some(found(key).map(|(_, value)| value_text(value))),
+                Some(key),
+            ),
+            Op::GetKeyValue(key) => (some(found(key).map(entry_text)), Some(key)),
+            Op::Contains(key) => (found(key).is_some().to_string(), Some(key)),
+            Op::GetIndexOf(key) => (some(self.position(key).map(|i| i.to_string())), Some(key)),
+            Op::GetIndex(index) => {
+                let entry = self.entries.get(index).copied();
+                (some(entry.map(entry_text)), entry.map(|(key, _)| key))
+            }
+            _ => return None,
         })
     }
 
@@ -323,4 +331,22 @@ impl<'a> Run<'a> {
             model.key_capacity,
         )
     }
+}
+
+/// Formats a map value as `Debug` prints it.
+fn value_text(value: Option<Value>) -> String {
+    format!("{:?}", value.expect("map entries have values"))
+}
+
+/// Formats an entry as `Debug` prints `(K, V)`, or a set key as `K`.
+fn entry_text((key, value): (usize, Option<Value>)) -> String {
+    match value {
+        Some(value) => format!("({key}, {value:?})"),
+        None => key.to_string(),
+    }
+}
+
+/// Formats `Option<T>` as `Debug` prints it, given the text of `T`.
+fn some(text: Option<String>) -> String {
+    text.map_or_else(|| "None".to_owned(), |text| format!("Some({text})"))
 }

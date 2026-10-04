@@ -7,7 +7,7 @@ use crate::notes;
 use crate::snapshot::Snapshot;
 use crate::table::Table;
 
-/// The number of sparse slots and dense positions drawn.
+/// The number of sparse slots and dense indices drawn.
 pub(crate) const COLUMNS: usize = 16;
 
 /// Draws the arrays of a snapshot.

@@ -6,7 +6,7 @@ use crate::render::COLUMNS;
 use crate::snapshot::Snapshot;
 use crate::table::anchor;
 
-/// A line from a sparse slot down to the dense position it holds.
+/// A line from a sparse slot down to the dense index it holds.
 pub(crate) struct Link {
     slot: usize,
     pub(crate) position: usize,
@@ -42,7 +42,7 @@ fn dashes(count: usize) -> String {
     iter::repeat_n('─', count).collect()
 }
 
-/// Returns the index of the only entry whose position changed, if exactly one
+/// Returns the key of the only entry whose dense index changed, if exactly one
 /// did.
 fn moved(before: &Snapshot, after: &Snapshot) -> Option<usize> {
     let mut moved = after.entries.iter().enumerate().filter_map(|(to, entry)| {

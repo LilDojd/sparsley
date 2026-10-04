@@ -318,7 +318,7 @@ map.insert(12, 'e') -> None
           └───┴───┴───┴───┺━━━┻━━━┻━━━┻━━━┛
 
   len 4 -> 5, capacity 4 -> 8, key_capacity 64
-  sparse[12]  0 -> 5  key 12 pushed at position 4
+  sparse[12]  0 -> 5  key 12 pushed at index 4
 
 map.insert(70, 'f') -> None
             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
@@ -333,7 +333,7 @@ map.insert(70, 'f') -> None
           └───┴───┴───┴───┴───┺━━━┹───┴───┘
 
   len 5 -> 6, capacity 8, key_capacity 64 -> 128
-  sparse[70]  0 -> 6  key 70 pushed at position 5
+  sparse[70]  0 -> 6  key 70 pushed at index 5
 ",
     );
 }
@@ -357,7 +357,7 @@ map.insert(3, 'a') -> None
           ┗━━━┻━━━┻━━━┻━━━┛
 
   len 0 -> 1, capacity 0 -> 4, key_capacity 0 -> 64
-  sparse[3]  0 -> 1  key 3 pushed at position 0
+  sparse[3]  0 -> 1  key 3 pushed at index 0
 
 map.insert(7, 'b') -> None
             0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
@@ -373,7 +373,7 @@ map.insert(7, 'b') -> None
           └───┺━━━┹───┴───┘
 
   len 1 -> 2, capacity 4, key_capacity 64
-  sparse[7]  0 -> 2  key 7 pushed at position 1
+  sparse[7]  0 -> 2  key 7 pushed at index 1
 ",
     );
 }
@@ -422,8 +422,8 @@ map.remove(7) -> Some('b')
           └───┺━━━┹───┺━━━┛
 
   len 4 -> 3, capacity 4, key_capacity 64
-  sparse[7]  2 -> 0  key 7 removed from position 1
-  sparse[9]  4 -> 2  key 9 moved from position 3 to 1
+  sparse[7]  2 -> 0  key 7 removed from index 1
+  sparse[9]  4 -> 2  key 9 moved from index 3 to 1
 ",
     );
 }
@@ -446,7 +446,7 @@ map.remove(9) -> Some('d')
           └───┴───┴───┺━━━┛
 
   len 4 -> 3, capacity 4, key_capacity 64
-  sparse[9]  4 -> 0  key 9 removed from position 3
+  sparse[9]  4 -> 0  key 9 removed from index 3
 ",
     );
 }
@@ -469,10 +469,10 @@ map.clear()
           ┗━━━┻━━━┻━━━┻━━━┛
 
   len 4 -> 0, capacity 4, key_capacity 64
-  sparse[3]  1 -> 0  key 3 removed from position 0
-  sparse[7]  2 -> 0  key 7 removed from position 1
-  sparse[1]  3 -> 0  key 1 removed from position 2
-  sparse[9]  4 -> 0  key 9 removed from position 3
+  sparse[3]  1 -> 0  key 3 removed from index 0
+  sparse[7]  2 -> 0  key 7 removed from index 1
+  sparse[1]  3 -> 0  key 1 removed from index 2
+  sparse[9]  4 -> 0  key 9 removed from index 3
 ",
     );
 }
@@ -496,8 +496,8 @@ map.retain(|key, _| key > 2)
           └───┴───┺━━━┻━━━┛
 
   len 4 -> 3, capacity 4, key_capacity 64
-  sparse[1]  3 -> 0  key 1 removed from position 2
-  sparse[9]  4 -> 3  key 9 moved from position 3 to 2
+  sparse[1]  3 -> 0  key 1 removed from index 2
+  sparse[9]  4 -> 3  key 9 moved from index 3 to 2
 ",
     );
 }
@@ -542,8 +542,8 @@ set.remove(7) -> true
           └───┺━━━┹───┺━━━┛
 
   len 4 -> 3, capacity 4, key_capacity 64
-  sparse[7]  2 -> 0  key 7 removed from position 1
-  sparse[9]  4 -> 2  key 9 moved from position 3 to 1
+  sparse[7]  2 -> 0  key 7 removed from index 1
+  sparse[9]  4 -> 2  key 9 moved from index 3 to 1
 ",
     );
 }

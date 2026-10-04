@@ -30,9 +30,9 @@ impl Display for SlotChange<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let key = &self.entry.key;
         match self.change {
-            Change::Removed { from } => write!(f, "key {key} removed from position {from}"),
-            Change::Moved { from, to } => write!(f, "key {key} moved from position {from} to {to}"),
-            Change::Pushed { to } => write!(f, "key {key} pushed at position {to}"),
+            Change::Removed { from } => write!(f, "key {key} removed from index {from}"),
+            Change::Moved { from, to } => write!(f, "key {key} moved from index {from} to {to}"),
+            Change::Pushed { to } => write!(f, "key {key} pushed at index {to}"),
         }
     }
 }
@@ -126,7 +126,7 @@ fn lookup(out: &mut String, after: &Snapshot, index: usize) {
     };
 }
 
-/// Writes entries that kept their position but changed value.
+/// Writes entries that kept their dense index but changed value.
 fn replacements(out: &mut String, before: &Snapshot, after: &Snapshot) {
     for (position, new) in after.entries.iter().enumerate() {
         let Some(old) = before.entries.get(position) else {

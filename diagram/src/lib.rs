@@ -12,13 +12,6 @@
 //! pub struct Documented;
 //! ```
 //!
-//! The first statement builds the collection and is not drawn. Each later
-//! call is drawn with its return value. Sparse slots store `position + 1`;
-//! an empty slot is zero and drawn blank. Shaded cells are unused dense
-//! capacity, heavy borders frame cells the call changed, and a line links
-//! the looked-up or moved key's slot to its position. Only the first 16
-//! slots and positions are drawn.
-//!
 //! [`state!`] takes the same input and expands to the final model state, so
 //! tests can check the model against the real collections.
 
@@ -65,7 +58,7 @@ pub fn diagram(input: TokenStream) -> TokenStream {
 /// Expands to the final model state as a tuple:
 /// `(slots, keys, values, len, capacity, key_capacity)`.
 ///
-/// `slots` is a `&[Option<usize>]` of dense positions for every key below
+/// `slots` is a `&[Option<usize>]` of dense indices for every key below
 /// `key_capacity`, `keys` a `&[usize]`, and `values` a `&[char]`, `&[i64]`
 /// or, for a set, an empty `&[()]`.
 ///

@@ -25,6 +25,7 @@ in
   packages = [
     pkgs.cargo-hack
     pkgs.cargo-insta
+    pkgs.cargo-edit
     pkgs.cargo-mutants
     pkgs.cargo-nextest
     pkgs.cargo-show-asm

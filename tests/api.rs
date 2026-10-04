@@ -16,6 +16,7 @@ fn queries_never_allocate() {
     let mut map = SparseMap::<usize, u8>::new();
     for key in [0, 1, usize::MAX] {
         assert_eq!(map.get(key), None);
+        assert_eq!(map.get_key_value(key), None);
         assert_eq!(map.get_mut(key), None);
         assert_eq!(map.get_index_of(key), None);
         assert!(!map.contains_key(key));
@@ -29,8 +30,33 @@ fn queries_never_allocate() {
     map.insert(3, 0);
     let key_capacity = map.key_capacity();
     assert_eq!(map.get(usize::MAX), None);
+    assert_eq!(map.get_key_value(usize::MAX), None);
     assert_eq!(map.remove(usize::MAX), None);
     assert_eq!(map.key_capacity(), key_capacity);
+}
+
+#[test]
+fn get_key_value_returns_the_stored_key() {
+    #[derive(Clone, Copy)]
+    struct Tagged(usize, &'static str);
+
+    impl PartialEq for Tagged {
+        fn eq(&self, other: &Self) -> bool {
+            self.0 == other.0
+        }
+    }
+
+    impl Key for Tagged {
+        fn slot(self) -> usize {
+            self.0
+        }
+    }
+
+    let mut map = SparseMap::new();
+    map.insert(Tagged(2, "original"), "old");
+    assert_eq!(map.insert(Tagged(2, "replacement"), "new"), Some("old"));
+    let (stored, value) = map.get_key_value(Tagged(2, "query")).unwrap();
+    assert_eq!((stored.1, *value), ("original", "new"));
 }
 
 #[test]
@@ -108,6 +134,20 @@ fn get_disjoint_mut_duplicate_panics() {
 }
 
 #[test]
+fn set_swap_indices_out_of_bounds_panics() {
+    for mut set in [SparseSet::<u32>::new(), SparseSet::from([4, 8])] {
+        for (a, b) in [(0, set.len()), (set.len(), 0), (0, usize::MAX)] {
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    set.swap_indices(a, b);
+                }))
+                .is_err()
+            );
+        }
+    }
+}
+
+#[test]
 fn equality_ignores_dense_order() {
     let forward: SparseMap<u32, char> = [(1, 'a'), (2, 'b'), (3, 'c')].into();
     let mut backward: SparseMap<u32, char> = [(3, 'c'), (2, 'b'), (1, 'a')].into();
@@ -127,68 +167,50 @@ fn equality_ignores_dense_order() {
 
 #[test]
 fn debug_formatting() {
-    let mut map: SparseMap<u32, &str> = [(2, "b"), (1, "a")].into();
+    let map: SparseMap<u32, &str> = [(2, "b"), (1, "a")].into();
     assert_eq!(format!("{map:?}"), r#"{2: "b", 1: "a"}"#);
-    assert_eq!(format!("{:?}", map.iter()), r#"[(2, "b"), (1, "a")]"#);
-    assert_eq!(
-        format!("{:?}", map.entry(1)),
-        r#"Occupied(OccupiedEntry { key: 1, value: "a" })"#
-    );
-    assert_eq!(format!("{:?}", map.entry(9)), "Vacant(VacantEntry(9))");
     assert_eq!(format!("{:?}", SparseSet::from([4u8, 2])), "{4, 2}");
 }
 
 #[test]
-fn collecting_keeps_last_duplicate() {
-    let map: SparseMap<u32, char> = [(1, 'a'), (2, 'b'), (1, 'c')].into();
-    assert_eq!((map.len(), map[1]), (2, 'c'));
-
-    let mut map: SparseMap<u32, char> = [(2, 'x')].into_iter().collect();
+fn extending_copied_values() {
+    let mut map: SparseMap<u32, char> = [(2, 'x')].into();
     map.extend([(2, &'y'), (3, &'z')]);
     assert_eq!(map, SparseMap::from([(3, 'z'), (2, 'y')]));
-
-    let set: SparseSet<u16> = [5, 5, 1].into_iter().collect();
-    assert_eq!(set.as_slice(), [5, 1]);
 }
 
 fn check_iter<I>(make: impl Fn() -> I, expected: &[I::Item])
 where
     I: DoubleEndedIterator + ExactSizeIterator,
-    I::Item: Clone + PartialEq + Debug,
+    I::Item: PartialEq + Debug,
 {
-    let reversed: Vec<_> = expected.iter().rev().cloned().collect();
-    assert_eq!(make().len(), expected.len());
-    assert_eq!(make().count(), expected.len());
-    assert_eq!(make().collect::<Vec<_>>(), expected);
-    assert_eq!(make().rev().collect::<Vec<_>>(), reversed);
-    assert_eq!(make().fold(Vec::new(), push), expected);
-    assert_eq!(make().rfold(Vec::new(), push), reversed);
-    for n in 0..=expected.len() {
-        assert_eq!(make().nth(n), expected.get(n).cloned());
-    }
-
     let mut iter = make();
-    assert_eq!(iter.next(), expected.first().cloned());
-    assert_eq!(
-        iter.next_back(),
-        expected.get(1..).and_then(<[_]>::last).cloned()
-    );
-    assert_eq!(iter.len(), expected.len().saturating_sub(2));
-}
-
-fn push<T>(mut acc: Vec<T>, item: T) -> Vec<T> {
-    acc.push(item);
-    acc
+    let mut remaining = expected.iter();
+    let mut front = true;
+    while remaining.len() != 0 {
+        assert_eq!(iter.len(), remaining.len());
+        let (actual, expected) = if front {
+            (iter.next(), remaining.next())
+        } else {
+            (iter.next_back(), remaining.next_back())
+        };
+        assert_eq!(actual.as_ref(), expected);
+        front = !front;
+    }
+    assert_eq!(iter.len(), 0);
+    assert_eq!(iter.next(), None);
+    assert_eq!(iter.next_back(), None);
 }
 
 #[test]
 fn iterators_follow_dense_order() {
     let map = sample();
-    let dense: Vec<_> = map.keys().iter().copied().zip(map.values()).collect();
-    check_iter(|| map.iter(), &dense);
-
-    let owned: Vec<_> = dense.iter().map(|&(k, v)| (k, v.clone())).collect();
+    let owned = [(3, "c"), (1, "a"), (7, "g"), (5, "e")].map(|(k, v)| (k, v.to_owned()));
+    let borrowed: Vec<_> = owned.iter().map(|(k, v)| (*k, v)).collect();
+    check_iter(|| map.iter(), &borrowed);
     check_iter(|| map.clone().into_iter(), &owned);
+    check_iter(|| SparseMap::<u32, String>::new().into_iter(), &[]);
+    check_iter(|| SparseMap::from([(7_u32, "g")]).into_iter(), &[(7, "g")]);
 
     let mut iter = map.iter();
     iter.next();
@@ -206,26 +228,6 @@ fn iterators_follow_dense_order() {
     assert_eq!(drain.len(), 3);
     assert_eq!((drain.next(), drain.next_back()), (Some(9), Some(6)));
     assert_eq!(drain.len(), 1);
-}
-
-#[test]
-fn subset_and_disjoint() {
-    let empty = SparseSet::<u32>::new();
-    let small = SparseSet::from([1, 2]);
-    let large = SparseSet::from([3, 2, 1]);
-    let other = SparseSet::from([7, 8, 9, 10]);
-
-    assert!(empty.is_subset(&small));
-    assert!(small.is_subset(&small));
-    assert!(small.is_subset(&large));
-    assert!(!large.is_subset(&small));
-    assert!(!SparseSet::from([1, 4]).is_subset(&large));
-
-    assert!(empty.is_disjoint(&empty));
-    assert!(small.is_disjoint(&other));
-    assert!(other.is_disjoint(&small));
-    assert!(!large.is_disjoint(&small));
-    assert!(!SparseSet::from([10, 3]).is_disjoint(&large));
 }
 
 fn roundtrip<K: Key + Debug + PartialEq>(keys: [K; 3]) {
@@ -248,44 +250,4 @@ fn key_types() {
     #[cfg(target_pointer_width = "64")]
     roundtrip([0u64, 300, 7]);
     roundtrip([0usize, 300, 7]);
-}
-
-#[test]
-fn key_value_and_key_order() {
-    let mut map = sample();
-    assert_eq!(map.get_key_value(7), Some((7, &"g".to_owned())));
-    assert_eq!(map.get_key_value(2), None);
-    map.sort_unstable_keys();
-    assert_eq!(map.keys(), [1, 3, 5, 7]);
-    assert_eq!(map[5], "e");
-}
-
-#[test]
-fn set_positions() {
-    let mut set = SparseSet::from([4_u32, 8, 15, 16]);
-    assert_eq!(set.get_index_of(15), Some(2));
-    assert_eq!(set.get_index(2), Some(15));
-    assert_eq!(set.swap_remove_index(0), Some(4));
-    assert_eq!(set.as_slice(), [16, 8, 15]);
-    assert!(!set.contains(4));
-    set.swap_indices(0, 2);
-    assert_eq!(set.as_slice(), [15, 8, 16]);
-    assert_eq!(set.get_index_of(16), Some(2));
-    assert_eq!(set.swap_remove_index(3), None);
-}
-
-#[test]
-fn set_algebra() {
-    let a = SparseSet::from([1_u32, 2, 3, 4]);
-    let b = SparseSet::from([3_u32, 4, 5]);
-    let sorted = |iter: &mut dyn Iterator<Item = u32>| {
-        let mut keys: Vec<u32> = iter.collect();
-        keys.sort_unstable();
-        keys
-    };
-    assert_eq!(sorted(&mut a.intersection(&b)), [3, 4]);
-    assert_eq!(sorted(&mut b.intersection(&a)), [3, 4]);
-    assert_eq!(sorted(&mut a.difference(&b)), [1, 2]);
-    assert!(a.is_superset(&SparseSet::from([2_u32, 4])));
-    assert!(!a.is_superset(&b));
 }

@@ -23,7 +23,7 @@ fn config() -> Config {
 }
 
 fn key() -> impl Strategy<Value = u32> {
-    prop_oneof![15 => 0..256u32, 1 => LARGE..LARGE + 4]
+    prop_oneof![12 => 0..16u32, 3 => 16..256u32, 1 => LARGE..LARGE + 4]
 }
 
 fn probe_keys() -> impl Iterator<Item = u32> {
@@ -47,6 +47,7 @@ enum MapOp {
     GetDisjointMut(u32, u32),
     ReserveKeys(usize),
     Sort,
+    SortKeys,
     SwapRemoveIndex(usize),
     SwapIndices(usize, usize),
 }
@@ -68,8 +69,9 @@ fn map_op() -> impl Strategy<Value = MapOp> {
         2 => (key(), key()).prop_map(|(a, b)| MapOp::GetDisjointMut(a, b)),
         1 => (0..300usize).prop_map(MapOp::ReserveKeys),
         1 => Just(MapOp::Sort),
-        2 => (0..64usize).prop_map(MapOp::SwapRemoveIndex),
-        2 => (0..64usize, 0..64usize).prop_map(|(a, b)| MapOp::SwapIndices(a, b)),
+        1 => Just(MapOp::SortKeys),
+        2 => any::<usize>().prop_map(MapOp::SwapRemoveIndex),
+        2 => (any::<usize>(), any::<usize>()).prop_map(|(a, b)| MapOp::SwapIndices(a, b)),
     ]
 }
 
@@ -163,17 +165,28 @@ fn apply(map: &mut SparseMap<u32, u32>, model: &mut BTreeMap<u32, u32>, op: MapO
             let entries: Vec<_> = map.iter().map(|(k, &v)| (v, k)).collect();
             assert!(entries.is_sorted());
         }
-        MapOp::SwapRemoveIndex(position) => {
-            let expected = map
-                .get_index(position)
-                .map(|(k, _)| (k, model.remove(&k).unwrap()));
+        MapOp::SortKeys => {
+            map.sort_unstable_keys();
+            assert!(map.keys().iter().copied().eq(model.keys().copied()));
+        }
+        MapOp::SwapRemoveIndex(seed) => {
+            let position = seed % (map.len() + 1);
+            let mut keys = map.keys().to_vec();
+            let expected = (position < keys.len()).then(|| {
+                let k = keys.swap_remove(position);
+                (k, model.remove(&k).unwrap())
+            });
             assert_eq!(map.swap_remove_index(position), expected);
+            assert_eq!(map.keys(), keys);
+            assert_eq!(map.swap_remove_index(usize::MAX), None);
         }
         MapOp::SwapIndices(a, b) => {
-            if a < map.len() && b < map.len() {
-                let (ka, kb) = (map.keys()[a], map.keys()[b]);
+            if !map.is_empty() {
+                let (a, b) = (a % map.len(), b % map.len());
+                let mut keys = map.keys().to_vec();
+                keys.swap(a, b);
                 map.swap_indices(a, b);
-                assert_eq!((map.keys()[a], map.keys()[b]), (kb, ka));
+                assert_eq!(map.keys(), keys);
             }
         }
     }
@@ -185,6 +198,7 @@ fn check_map(map: &SparseMap<u32, u32>, model: &BTreeMap<u32, u32>) {
     assert_eq!(map.keys().len(), map.values().len());
     for k in probe_keys() {
         assert_eq!(map.get(k), model.get(&k));
+        assert_eq!(map.get_key_value(k), model.get(&k).map(|v| (k, v)));
         assert_eq!(map.contains_key(k), model.contains_key(&k));
         let indexed = map.get_index_of(k).and_then(|p| map.get_index(p));
         assert_eq!(indexed, model.get(&k).map(|v| (k, v)));
@@ -192,7 +206,11 @@ fn check_map(map: &SparseMap<u32, u32>, model: &BTreeMap<u32, u32>) {
     for (position, (&k, v)) in map.keys().iter().zip(map.values()).enumerate() {
         assert_eq!(map.get_index_of(k), Some(position));
         assert_eq!(map.get(k), Some(v));
+        assert_eq!(map.get_index(position), Some((k, v)));
     }
+    assert_eq!(map.get_index(map.len()), None);
+    assert_eq!(map.get_index(usize::MAX), None);
+    assert_eq!(map.get_key_value(u32::MAX), None);
     let snapshot: BTreeMap<u32, u32> = map.iter().map(|(k, &v)| (k, v)).collect();
     assert_eq!(&snapshot, model);
 }
@@ -206,6 +224,9 @@ enum SetOp {
     Drain(usize),
     Extend(Vec<u32>),
     ShrinkToFit,
+    Sort,
+    SwapRemoveIndex(usize),
+    SwapIndices(usize, usize),
 }
 
 fn set_op() -> impl Strategy<Value = SetOp> {
@@ -217,6 +238,9 @@ fn set_op() -> impl Strategy<Value = SetOp> {
         1 => (0..8usize).prop_map(SetOp::Drain),
         2 => prop::collection::vec(key(), 0..8).prop_map(SetOp::Extend),
         1 => Just(SetOp::ShrinkToFit),
+        1 => Just(SetOp::Sort),
+        2 => any::<usize>().prop_map(SetOp::SwapRemoveIndex),
+        2 => (any::<usize>(), any::<usize>()).prop_map(|(a, b)| SetOp::SwapIndices(a, b)),
     ]
 }
 
@@ -241,17 +265,93 @@ fn apply_set(set: &mut SparseSet<u32>, model: &mut BTreeSet<u32>, op: SetOp) {
             model.extend(keys);
         }
         SetOp::ShrinkToFit => set.shrink_to_fit(),
+        SetOp::Sort => {
+            set.sort_unstable();
+            assert!(set.iter().eq(model.iter().copied()));
+        }
+        SetOp::SwapRemoveIndex(seed) => {
+            let position = seed % (set.len() + 1);
+            let mut keys = set.as_slice().to_vec();
+            let expected = (position < keys.len()).then(|| keys.swap_remove(position));
+            if let Some(k) = expected {
+                assert!(model.remove(&k));
+            }
+            assert_eq!(set.swap_remove_index(position), expected);
+            assert_eq!(set.as_slice(), keys);
+            assert_eq!(set.swap_remove_index(usize::MAX), None);
+        }
+        SetOp::SwapIndices(a, b) => {
+            if !set.is_empty() {
+                let (a, b) = (a % set.len(), b % set.len());
+                let mut keys = set.as_slice().to_vec();
+                keys.swap(a, b);
+                set.swap_indices(a, b);
+                assert_eq!(set.as_slice(), keys);
+            }
+        }
     }
 }
 
 fn check_set(set: &SparseSet<u32>, model: &BTreeSet<u32>) {
     assert_eq!(set.len(), model.len());
+    assert_eq!(set.is_empty(), model.is_empty());
+    for (position, &k) in set.as_slice().iter().enumerate() {
+        assert_eq!(set.get_index(position), Some(k));
+        assert_eq!(set.get_index_of(k), Some(position));
+    }
+    assert_eq!(set.get_index(set.len()), None);
+    assert_eq!(set.get_index(usize::MAX), None);
     for k in probe_keys() {
         assert_eq!(set.contains(k), model.contains(&k));
-        let found = set.get_index_of(k).map(|p| set.as_slice()[p]);
+        let found = set.get_index_of(k).and_then(|p| set.get_index(p));
         assert_eq!(found, model.contains(&k).then_some(k));
     }
     assert_eq!(&set.iter().collect::<BTreeSet<_>>(), model);
+}
+
+fn check_algebra(
+    set: &SparseSet<u32>,
+    model: &BTreeSet<u32>,
+    other: &SparseSet<u32>,
+    other_model: &BTreeSet<u32>,
+) {
+    let empty = SparseSet::new();
+    let empty_model = BTreeSet::new();
+    for (a, ma, b, mb) in [
+        (set, model, other, other_model),
+        (other, other_model, set, model),
+        (set, model, set, model),
+        (set, model, &empty, &empty_model),
+        (&empty, &empty_model, set, model),
+    ] {
+        assert_eq!(a.is_subset(b), ma.is_subset(mb));
+        assert_eq!(a.is_superset(b), ma.is_superset(mb));
+        assert_eq!(a.is_disjoint(b), ma.is_disjoint(mb));
+
+        let mut intersection: Vec<_> = a.intersection(b).collect();
+        let smaller = if a.len() <= b.len() { a } else { b };
+        let larger_model = if a.len() <= b.len() { mb } else { ma };
+        assert_eq!(
+            intersection,
+            smaller
+                .iter()
+                .filter(|k| larger_model.contains(k))
+                .collect::<Vec<_>>()
+        );
+        intersection.sort_unstable();
+        assert_eq!(
+            intersection,
+            ma.intersection(mb).copied().collect::<Vec<_>>()
+        );
+
+        let mut difference: Vec<_> = a.difference(b).collect();
+        assert_eq!(
+            difference,
+            a.iter().filter(|k| !mb.contains(k)).collect::<Vec<_>>()
+        );
+        difference.sort_unstable();
+        assert_eq!(difference, ma.difference(mb).copied().collect::<Vec<_>>());
+    }
 }
 
 proptest! {
@@ -261,6 +361,7 @@ proptest! {
     fn map_matches_btreemap(ops in prop::collection::vec(map_op(), 0..MAX_OPS)) {
         let mut map = SparseMap::new();
         let mut model = BTreeMap::new();
+        check_map(&map, &model);
         for op in ops {
             apply(&mut map, &mut model, op);
             check_map(&map, &model);
@@ -268,12 +369,20 @@ proptest! {
     }
 
     #[test]
-    fn set_matches_btreeset(ops in prop::collection::vec(set_op(), 0..MAX_OPS)) {
+    fn set_matches_btreeset(
+        ops in prop::collection::vec(set_op(), 0..MAX_OPS),
+        other_keys in prop::collection::vec(key(), 0..16),
+    ) {
         let mut set = SparseSet::new();
         let mut model = BTreeSet::new();
+        let other: SparseSet<_> = other_keys.iter().copied().collect();
+        let other_model: BTreeSet<_> = other_keys.into_iter().collect();
+        check_set(&set, &model);
+        check_algebra(&set, &model, &other, &other_model);
         for op in ops {
             apply_set(&mut set, &mut model, op);
             check_set(&set, &model);
+            check_algebra(&set, &model, &other, &other_model);
         }
     }
 }

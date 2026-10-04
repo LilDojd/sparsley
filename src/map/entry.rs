@@ -32,10 +32,7 @@ impl<'a, K: Key, V> Entry<'a, K, V> {
         let index = key.index();
         map.sparse.reserve(index, super::indices(map.dense.keys()));
         let len = map.len();
-        let position = map
-            .sparse
-            .slot_mut(index)
-            .and_then(|slot| slot.position(len));
+        let position = map.sparse.probe(index, len);
         match position {
             Some(position) => Self::Occupied(OccupiedEntry { map, position }),
             None => Self::Vacant(VacantEntry { map, key, index }),

@@ -165,7 +165,7 @@ impl<K: Key, V> SparseMap<K, V> {
     #[inline]
     #[must_use]
     pub fn position(&self, key: K) -> Option<usize> {
-        self.sparse.position(key.index(), self.len())
+        self.sparse.get(key.index(), self.len())
     }
 
     /// Returns `true` if the map contains `key`.
@@ -276,10 +276,10 @@ impl<K: Key, V> SparseMap<K, V> {
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let len = self.dense.len();
-        let Some(slot) = self.sparse.flagged_slot(key.index()) else {
+        let Some(slot) = self.sparse.flagged(key.index()) else {
             return self.insert_slow(key, value);
         };
-        if let Some(position) = slot.position(len) {
+        if let Some(position) = slot.get(len) {
             // SAFETY: `position` only returns positions below `len`.
             let stored = unsafe { self.dense.values_mut().get_unchecked_mut(position) };
             return Some(mem::replace(stored, value));

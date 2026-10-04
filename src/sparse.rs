@@ -10,28 +10,81 @@ const MIN_SLOTS: usize = 64;
 /// Slots per chunk: one 4 KiB page.
 const CHUNK_SHIFT: u32 = 10;
 
-/// Key index to dense position map.
+/// Maps key slots to dense indices.
 ///
-/// A slot stores `position + 1`, so an empty slot is all zero bits and fresh
-/// slots come from zeroed allocations. System allocators back large zeroed
-/// allocations with lazily mapped pages, so untouched slots cost no memory.
+/// Fresh slots come from zeroed allocations, which system allocators back with
+/// lazily mapped pages, so untouched slots cost no memory.
 ///
-/// One flag per page-sized chunk of slots records whether the chunk may hold a
-/// non-empty slot. Insertion writes into a clear chunk without reading it
-/// first, so a fresh page takes one write fault instead of a read fault
-/// followed by a copy-on-write fault. Slots below `flagged` lie in flagged
-/// chunks, so insertion there skips the flags entirely.
+/// One flag per page-sized chunk of slots records whether the chunk may hold an
+/// occupied slot. Insertion writes into a clear chunk without reading it first,
+/// so a fresh page takes one write fault instead of a read fault followed by a
+/// copy-on-write fault. Slots below `flagged` lie in flagged chunks, so
+/// insertion there skips the flags entirely.
 ///
 /// # Invariants
 ///
 /// * `chunks.len() == slots.len().div_ceil(1 << CHUNK_SHIFT)`.
-/// * If a slot is non-empty, its chunk flag is set.
+/// * If a slot is occupied, its chunk flag is set.
 /// * `flagged <= slots.len()`, and every chunk below `flagged` is flagged.
 #[derive(Default)]
 pub(crate) struct Sparse {
-    slots: Vec<Option<NonZeroU32>>,
+    slots: Vec<Slot>,
     chunks: Vec<bool>,
     flagged: usize,
+}
+
+/// A dense index stored as `index + 1`, so an empty slot is all zero bits.
+#[derive(Clone, Copy, Default)]
+#[repr(transparent)]
+pub(crate) struct Slot(Option<NonZeroU32>);
+
+impl Slot {
+    /// Returns the stored index if it is below `len`.
+    ///
+    /// Testing for an empty slot first keeps misses to one branch.
+    #[inline]
+    pub(crate) fn get(self, len: usize) -> Option<usize> {
+        let index = self.0?.get() as usize - 1;
+        (index < len).then_some(index)
+    }
+
+    #[inline]
+    fn is_occupied(self) -> bool {
+        self.0.is_some()
+    }
+
+    /// Stores `index`, which must be below `MAX_LEN`.
+    #[inline]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "indices are below `MAX_LEN`"
+    )]
+    fn set(&mut self, index: usize) {
+        debug_assert!(index < MAX_LEN);
+        self.0 = Some(NonZeroU32::MIN.saturating_add(index as u32));
+    }
+
+    /// Stores `index`.
+    ///
+    /// # Safety
+    ///
+    /// `index` must be below `MAX_LEN`.
+    #[inline]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "indices are below `MAX_LEN`"
+    )]
+    pub(crate) unsafe fn set_unchecked(&mut self, index: usize) {
+        debug_assert!(index < MAX_LEN);
+        // SAFETY: guaranteed by the caller; `index + 1` cannot wrap to zero.
+        self.0 = Some(unsafe { NonZeroU32::new_unchecked(index as u32 + 1) });
+    }
+
+    /// Empties the slot, returning the stored index if it is below `len`.
+    #[inline]
+    fn take(&mut self, len: usize) -> Option<usize> {
+        Self(self.0.take()).get(len)
+    }
 }
 
 impl Sparse {
@@ -44,7 +97,8 @@ impl Sparse {
     }
 
     fn zeroed(len: usize) -> Self {
-        // SAFETY: the all-zero `Option<NonZeroU32>` is `None`.
+        // SAFETY: `Slot` is a transparent `Option<NonZeroU32>`, whose all-zero
+        // value is `None`.
         let slots = unsafe { Box::new_zeroed_slice(len).assume_init() }.into_vec();
         Self {
             slots,
@@ -53,11 +107,11 @@ impl Sparse {
         }
     }
 
-    /// Builds `len` slots for the live key indices, given in dense order.
+    /// Builds `len` slots for the live key slots, given in dense order.
     fn from_live(len: usize, live: impl Iterator<Item = usize>) -> Self {
         let mut sparse = Self::zeroed(len);
-        for (position, index) in live.enumerate() {
-            sparse.set(index, position);
+        for (index, slot) in live.enumerate() {
+            sparse.set(slot, index);
         }
         sparse
     }
@@ -80,47 +134,51 @@ impl Sparse {
         self.slots.len()
     }
 
-    /// Returns the position stored at `index` if it is below `len`.
+    /// Returns the index stored in `slot` if it is below `len`.
     #[inline]
-    pub(crate) fn position(&self, index: usize, len: usize) -> Option<usize> {
-        checked(*self.slots.get(index)?, len)
+    pub(crate) fn get(&self, slot: usize, len: usize) -> Option<usize> {
+        self.slots.get(slot)?.get(len)
     }
 
-    /// Returns the slot of `index` if its chunk is known to be flagged.
+    /// Returns `true` if `slot` is occupied.
     #[inline]
-    pub(crate) fn flagged_slot(&mut self, index: usize) -> Option<FlaggedSlot<'_>> {
-        if index < self.flagged {
+    pub(crate) fn contains(&self, slot: usize) -> bool {
+        self.slots.get(slot).is_some_and(|slot| slot.is_occupied())
+    }
+
+    /// Returns `slot` if its chunk is known to be flagged.
+    #[inline]
+    pub(crate) fn flagged(&mut self, slot: usize) -> Option<&mut Slot> {
+        if slot < self.flagged {
             // SAFETY: `flagged <= slots.len()`.
-            Some(FlaggedSlot(unsafe { self.slots.get_unchecked_mut(index) }))
+            Some(unsafe { self.slots.get_unchecked_mut(slot) })
         } else {
             None
         }
     }
 
-    /// Returns the slot of `index` for writing.
+    /// Returns the index stored in `slot`, if below `len`, without reading
+    /// a slot in a clear chunk.
     #[inline]
-    pub(crate) fn slot_mut(&mut self, index: usize) -> Option<SlotMut<'_>> {
-        let slot = self.slots.get_mut(index)?;
-        // SAFETY: `index` has a slot, so its chunk exists by the invariant.
-        let chunk = unsafe { self.chunks.get_unchecked_mut(index >> CHUNK_SHIFT) };
-        let clear = !*chunk;
-        Some(SlotMut { slot, chunk, clear })
+    pub(crate) fn probe(&self, slot: usize, len: usize) -> Option<usize> {
+        let &flag = self.chunks.get(slot >> CHUNK_SHIFT)?;
+        if flag { self.get(slot, len) } else { None }
     }
 
-    /// Ensures `index` has a slot.
+    /// Ensures `slot` exists.
     #[inline]
-    pub(crate) fn reserve(&mut self, index: usize, live: impl ExactSizeIterator<Item = usize>) {
-        if index >= self.slots.len() {
-            self.grow(index, live);
+    pub(crate) fn reserve(&mut self, slot: usize, live: impl ExactSizeIterator<Item = usize>) {
+        if slot >= self.slots.len() {
+            self.grow(slot, live);
         }
     }
 
     #[cold]
     #[inline(never)]
-    fn grow(&mut self, index: usize, live: impl ExactSizeIterator<Item = usize>) {
-        let len = index
+    fn grow(&mut self, slot: usize, live: impl ExactSizeIterator<Item = usize>) {
+        let len = slot
             .checked_add(1)
-            .expect("key index overflow")
+            .expect("key slot overflow")
             .max(self.slots.len() * 2)
             .max(MIN_SLOTS);
         if is_crowded(live.len(), self.slots.len()) {
@@ -135,30 +193,41 @@ impl Sparse {
         }
     }
 
-    /// Points `index` at `position`, which must be below `MAX_LEN`. Does
-    /// nothing if `index` has no slot.
+    /// Points `slot` at `index`, which must be below `MAX_LEN`, flagging its
+    /// chunk. Does nothing if `slot` does not exist.
     #[inline]
-    pub(crate) fn set(&mut self, index: usize, position: usize) {
-        if let Some(slot) = self.slot_mut(index) {
-            slot.set(encode(position));
-            self.advance();
+    pub(crate) fn set(&mut self, slot: usize, index: usize) {
+        if let Some(entry) = self.slots.get_mut(slot) {
+            entry.set(index);
+            self.flag(slot);
         }
     }
 
-    /// Points `index` at `position`.
+    /// Points `slot` at `index`, flagging its chunk.
     ///
     /// # Safety
     ///
-    /// `index` must have a slot and `position` must be below `MAX_LEN`.
+    /// `slot` must exist and `index` must be below `MAX_LEN`.
     #[inline]
-    pub(crate) unsafe fn set_unchecked(&mut self, index: usize, position: usize) {
-        debug_assert!(index < self.slots.len());
+    pub(crate) unsafe fn set_unchecked(&mut self, slot: usize, index: usize) {
         // SAFETY: guaranteed by the caller.
-        unsafe {
-            self.slot_mut(index)
-                .unwrap_unchecked()
-                .set_unchecked(position);
+        unsafe { self.slots.get_unchecked_mut(slot).set_unchecked(index) };
+        self.flag(slot);
+    }
+
+    /// Points the occupied `slot` at `index`, which must be below `MAX_LEN`.
+    /// An occupied slot's chunk is already flagged.
+    #[inline]
+    pub(crate) fn repoint(&mut self, slot: usize, index: usize) {
+        if let Some(entry) = self.slots.get_mut(slot) {
+            entry.set(index);
         }
+    }
+
+    /// Flags the chunk of the existing `slot` and moves `flagged` past the
+    /// following flagged chunks.
+    fn flag(&mut self, slot: usize) {
+        self.chunks[slot >> CHUNK_SHIFT] = true;
         self.advance();
     }
 
@@ -171,42 +240,27 @@ impl Sparse {
         self.flagged = (chunk << CHUNK_SHIFT).min(self.slots.len());
     }
 
-    /// Empties `index`, returning its position if it is below `len`.
+    /// Empties `slot`, returning its index if it is below `len`.
     #[inline]
-    pub(crate) fn take(&mut self, index: usize, len: usize) -> Option<usize> {
-        checked(self.slots.get_mut(index)?.take(), len)
+    pub(crate) fn take(&mut self, slot: usize, len: usize) -> Option<usize> {
+        self.slots.get_mut(slot)?.take(len)
     }
 
-    /// Returns `true` if `index` holds a position.
     #[inline]
-    pub(crate) fn contains(&self, index: usize) -> bool {
-        matches!(self.slots.get(index), Some(Some(_)))
-    }
-
-    /// Points the live slot of `index` at `position`, which must be below
-    /// `MAX_LEN`. A live slot already has its chunk flag set.
-    #[inline]
-    pub(crate) fn repoint(&mut self, index: usize, position: usize) {
-        if let Some(slot) = self.slots.get_mut(index) {
-            *slot = Some(encode(position));
+    pub(crate) fn remove(&mut self, slot: usize) {
+        if let Some(entry) = self.slots.get_mut(slot) {
+            *entry = Slot::default();
         }
     }
 
-    #[inline]
-    pub(crate) fn remove(&mut self, index: usize) {
-        if let Some(slot) = self.slots.get_mut(index) {
-            *slot = None;
-        }
-    }
-
-    /// Empties the slots of the live key indices.
+    /// Empties the live key slots.
     pub(crate) fn remove_all(&mut self, live: impl ExactSizeIterator<Item = usize>) {
         if is_crowded(live.len(), self.slots.len()) {
-            self.slots.fill(None);
+            self.slots.fill(Slot::default());
             self.chunks.fill(true);
             self.flagged = self.slots.len();
         } else {
-            live.for_each(|index| self.remove(index));
+            live.for_each(|slot| self.remove(slot));
         }
     }
 
@@ -220,75 +274,6 @@ impl Sparse {
     }
 }
 
-/// A slot in a flagged chunk.
-pub(crate) struct FlaggedSlot<'a>(&'a mut Option<NonZeroU32>);
-
-impl FlaggedSlot<'_> {
-    /// Returns the stored position if it is below `len`.
-    #[inline]
-    pub(crate) fn position(&self, len: usize) -> Option<usize> {
-        checked(*self.0, len)
-    }
-
-    /// Points the slot at `position`.
-    ///
-    /// # Safety
-    ///
-    /// `position` must be below `MAX_LEN`.
-    #[inline]
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "positions are below `MAX_LEN`"
-    )]
-    pub(crate) unsafe fn set_unchecked(self, position: usize) {
-        debug_assert!(position < MAX_LEN);
-        // SAFETY: guaranteed by the caller; `position + 1` cannot wrap to zero.
-        *self.0 = Some(unsafe { NonZeroU32::new_unchecked(position as u32 + 1) });
-    }
-}
-
-/// An existing sparse slot and its chunk flag.
-pub(crate) struct SlotMut<'a> {
-    slot: &'a mut Option<NonZeroU32>,
-    chunk: &'a mut bool,
-    clear: bool,
-}
-
-impl SlotMut<'_> {
-    /// Returns the stored position if it is below `len`.
-    #[inline]
-    pub(crate) fn position(&self, len: usize) -> Option<usize> {
-        if self.clear {
-            return None;
-        }
-        checked(*self.slot, len)
-    }
-
-    #[inline]
-    fn set(self, slot: NonZeroU32) {
-        if self.clear {
-            *self.chunk = true;
-        }
-        *self.slot = Some(slot);
-    }
-
-    /// Points the slot at `position`.
-    ///
-    /// # Safety
-    ///
-    /// `position` must be below `MAX_LEN`.
-    #[inline]
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "positions are below `MAX_LEN`"
-    )]
-    pub(crate) unsafe fn set_unchecked(self, position: usize) {
-        debug_assert!(position < MAX_LEN);
-        // SAFETY: guaranteed by the caller; `position + 1` cannot wrap to zero.
-        self.set(unsafe { NonZeroU32::new_unchecked(position as u32 + 1) });
-    }
-}
-
 /// Chunks covering `slots` slots.
 fn chunks(slots: usize) -> usize {
     slots.div_ceil(1 << CHUNK_SHIFT)
@@ -298,23 +283,4 @@ fn chunks(slots: usize) -> usize {
 /// store costs roughly eight sequential slot writes.
 fn is_crowded(live: usize, slots: usize) -> bool {
     live.saturating_mul(8) >= slots
-}
-
-#[inline]
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "positions are below `MAX_LEN`"
-)]
-fn encode(position: usize) -> NonZeroU32 {
-    debug_assert!(position < MAX_LEN);
-    NonZeroU32::MIN.saturating_add(position as u32)
-}
-
-/// Decodes `slot` if it holds a position below `len`.
-///
-/// Testing for an empty slot first keeps misses to one branch.
-#[inline]
-fn checked(slot: Option<NonZeroU32>, len: usize) -> Option<usize> {
-    let position = slot?.get() as usize - 1;
-    (position < len).then_some(position)
 }

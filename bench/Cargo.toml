@@ -15,5 +15,9 @@ xsparseset = "=0.2.5"
 name = "compare"
 harness = false
 
+[[bench]]
+name = "hot"
+harness = false
+
 [lints]
 workspace = true

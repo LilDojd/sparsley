@@ -27,3 +27,6 @@ workspace = true
 
 [dev-dependencies]
 proptest = { version = "1.11", default-features = false, features = ["std"] }
+
+[profile.bench]
+debug = "line-tables-only"

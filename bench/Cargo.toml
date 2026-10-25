@@ -5,8 +5,8 @@ edition = "2024"
 publish = false
 
 [dev-dependencies]
-bevy_ecs = { version = "=0.19.1", default-features = false }
-cranelift-entity = "=0.136.2"
+bevy_ecs = { version = "=0.20.0", default-features = false }
+cranelift-entity = "=0.136.3"
 criterion = { version = "=0.8.2", default-features = false, features = ["cargo_bench_support", "html_reports"] }
 sparsley = { path = ".." }
 xsparseset = "=0.2.5"
